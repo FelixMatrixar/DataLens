@@ -29,8 +29,9 @@ export default function SettingsPage() {
 
       // Push config to extension if installed
       const extId = process.env.NEXT_PUBLIC_EXTENSION_ID;
-      if (extId && typeof chrome !== "undefined" && chrome.runtime?.id) {
-        chrome.runtime.sendMessage(extId, {
+      const cr = (globalThis as any).chrome;
+      if (extId && cr?.runtime?.id) {
+        cr.runtime.sendMessage(extId, {
           type: "SAVE_CONFIG",
           payload: {
             videodbApiKey: videodbKey,
