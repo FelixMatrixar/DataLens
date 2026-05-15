@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DataLens</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="header">
+    <span class="logo">DataLens</span>
+    <span id="status" class="status">Ready</span>
+  </div>
+
+  <div class="controls">
+    <button id="start-btn" class="btn btn-start">Start Session</button>
+    <button id="stop-btn" class="btn btn-stop" style="display:none">Stop Session</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat">
+      <span class="stat-label">Charts</span>
+      <span id="overlay-count" class="stat-value">0</span>
+    </div>
+    <div id="memory-status" class="memory-status"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Current Topic</div>
+    <div id="current-topic" class="current-topic">—</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Key Points</div>
+    <ul id="summary-keypoints" class="keypoints"></ul>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Data Points</div>
+    <ul id="data-points" class="datapoints"></ul>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Alerts</div>
+    <div id="alert-feed" class="alert-feed"></div>
+  </div>
+
+  <div class="footer">
+    <a href="https://datalens.app/settings" target="_blank">Configure keys →</a>
+  </div>
+
+  <script src="popup.ts" type="module"></script>
+</body>
+</html>
