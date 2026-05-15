@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
+import LogoutButton from "@/components/ui/LogoutButton";
 
 async function getSessions(userId: string) {
   const supabase = createClient(
@@ -27,8 +28,9 @@ export default async function DashboardPage() {
     <main className="min-h-screen bg-[#0B0B0B] text-[#F0F0F0]">
       <nav className="flex items-center justify-between px-8 py-5 border-b border-[#1E1E1E]">
         <Link href="/" className="text-[#E50000] font-bold text-lg">DataLens</Link>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
           <Link href="/settings" className="text-sm text-[#A0A0A0] hover:text-white">Settings</Link>
+          <LogoutButton />
         </div>
       </nav>
 

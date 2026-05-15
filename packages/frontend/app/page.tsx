@@ -1,16 +1,26 @@
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
+import LogoutButton from "@/components/ui/LogoutButton";
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const { userId } = auth();
+
   return (
     <main className="min-h-screen bg-[#0B0B0B] text-[#F0F0F0]">
       {/* Nav */}
       <nav className="flex items-center justify-between px-8 py-5 border-b border-[#1E1E1E]">
         <span className="text-[#E50000] font-bold text-lg tracking-tight">DataLens</span>
         <div className="flex gap-6 items-center">
-          <Link href="/dashboard" className="text-sm text-[#A0A0A0] hover:text-white transition">Dashboard</Link>
-          <Link href="/login" className="text-sm bg-[#E50000] text-white px-4 py-2 rounded-lg hover:bg-red-700 transition">
-            Sign In
-          </Link>
+          {userId ? (
+            <>
+              <Link href="/dashboard" className="text-sm text-[#A0A0A0] hover:text-white transition">Dashboard</Link>
+              <LogoutButton />
+            </>
+          ) : (
+            <Link href="/login" className="text-sm bg-[#E50000] text-white px-4 py-2 rounded-lg hover:bg-red-700 transition">
+              Sign In
+            </Link>
+          )}
         </div>
       </nav>
 
