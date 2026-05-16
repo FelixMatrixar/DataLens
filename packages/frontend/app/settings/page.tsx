@@ -1,60 +1,54 @@
 "use client";
-import { useUser } from "@clerk/nextjs";
 import { useState } from "react";
 import Link from "next/link";
 
 export default function SettingsPage() {
-  const { user } = useUser();
-  const [videodbKey, setVideodbKey] = useState("");
-  const [openrouterKey, setOpenrouterKey] = useState("");
-  const [collectionId, setCollectionId] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<"idle" | "syncing" | "done" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  async function saveKeys() {
-    setSaving(true);
-    setError("");
-    setSaved(false);
+  async function syncToExtension() {
+    setStatus("syncing");
+    setErrorMsg("");
     try {
-      const res = await fetch("/api/settings/save-keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videodbKey, openrouterKey }),
-      });
-
+      const res = await fetch("/api/config");
       if (!res.ok) {
-        const msg = await res.text().catch(() => res.status.toString());
-        setError(`Error ${res.status}: ${msg}`);
+        setErrorMsg(`Server error: ${await res.text()}`);
+        setStatus("error");
         return;
       }
 
-      // Push config to extension if installed
+      const config = await res.json();
+
       const extId = process.env.NEXT_PUBLIC_EXTENSION_ID;
       const cr = (globalThis as any).chrome;
-      if (extId && cr?.runtime) {
-        cr.runtime.sendMessage(extId, {
-          type: "SAVE_CONFIG",
-          payload: {
-            videodbApiKey: videodbKey,
-            openrouterApiKey: openrouterKey,
-            userId: user?.id ?? "",
-            frontendUrl: window.location.origin,
-            videodbCollectionId: collectionId,
-          },
-        });
+      if (!extId || !cr?.runtime) {
+        setErrorMsg("Extension not detected. Make sure DataLens is installed and NEXT_PUBLIC_EXTENSION_ID is set.");
+        setStatus("error");
+        return;
       }
 
-      setSaved(true);
-      setVideodbKey("");
-      setOpenrouterKey("");
-      setCollectionId("");
-    } finally {
-      setSaving(false);
+      cr.runtime.sendMessage(extId, {
+        type: "SAVE_CONFIG",
+        payload: {
+          videodbApiKey: config.videodbApiKey,
+          openrouterApiKey: config.openrouterApiKey,
+          videodbCollectionId: config.videodbCollectionId,
+          userId: config.userId,
+          frontendUrl: window.location.origin,
+        },
+      }, (response: any) => {
+        if (cr.runtime.lastError || !response?.ok) {
+          setErrorMsg("Could not reach extension. Try reloading the extension at chrome://extensions.");
+          setStatus("error");
+        } else {
+          setStatus("done");
+        }
+      });
+    } catch (e) {
+      setErrorMsg(String(e));
+      setStatus("error");
     }
   }
-
-  const canSave = !saving && videodbKey && openrouterKey && collectionId;
 
   return (
     <main className="min-h-screen bg-[#0B0B0B] text-[#F0F0F0]">
@@ -64,60 +58,40 @@ export default function SettingsPage() {
       </nav>
 
       <div className="max-w-md mx-auto px-8 py-12">
-        <h1 className="text-2xl font-bold mb-8">API Keys</h1>
+        <h1 className="text-2xl font-bold mb-3">Extension Setup</h1>
+        <p className="text-[#A0A0A0] text-sm mb-8">
+          Click the button below to sync your configuration to the DataLens extension.
+          Make sure the extension is installed and enabled first.
+        </p>
 
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[#A0A0A0]">VideoDB API Key</label>
-            <input
-              type="password"
-              placeholder="vdb-..."
-              value={videodbKey}
-              onChange={e => setVideodbKey(e.target.value)}
-              className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
-            />
-            <a href="https://console.videodb.io" target="_blank" rel="noreferrer" className="text-xs text-[#555] hover:text-[#A0A0A0]">
-              Get your VideoDB key →
-            </a>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[#A0A0A0]">VideoDB Collection ID</label>
-            <input
-              type="text"
-              placeholder="col-..."
-              value={collectionId}
-              onChange={e => setCollectionId(e.target.value)}
-              className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
-            />
-            <p className="text-xs text-[#555]">
-              Found in console.videodb.io → your collection → Settings. Looks like <span className="text-[#A0A0A0]">col-abc-123</span>
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-[#A0A0A0]">OpenRouter API Key</label>
-            <input
-              type="password"
-              placeholder="sk-or-..."
-              value={openrouterKey}
-              onChange={e => setOpenrouterKey(e.target.value)}
-              className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
-            />
-            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-xs text-[#555] hover:text-[#A0A0A0]">
-              Get your OpenRouter key — enables Gemini Flash →
-            </a>
-          </div>
-
-          {error && <p className="text-xs text-[#E50000]">{error}</p>}
-
+        <div className="space-y-4">
           <button
-            onClick={saveKeys}
-            disabled={!canSave}
-            className="w-full bg-[#E50000] text-white py-2.5 rounded-lg font-semibold text-sm disabled:opacity-50 hover:bg-red-700 transition"
+            onClick={syncToExtension}
+            disabled={status === "syncing"}
+            className="w-full bg-[#E50000] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-50 hover:bg-red-700 transition"
           >
-            {saving ? "Saving..." : saved ? "✓ Saved & pushed to extension" : "Save & Push to Extension"}
+            {status === "syncing" ? "Syncing..." : status === "done" ? "✓ Extension synced" : "Sync to Extension"}
           </button>
+
+          {status === "error" && (
+            <p className="text-xs text-[#E50000]">{errorMsg}</p>
+          )}
+
+          {status === "done" && (
+            <p className="text-xs text-[#00D4AA]">
+              Extension is configured. Open the DataLens popup and click Start.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-10 pt-8 border-t border-[#1E1E1E]">
+          <h2 className="text-sm font-semibold text-[#555] uppercase tracking-wider mb-4">Setup Checklist</h2>
+          <ol className="space-y-2 text-sm text-[#A0A0A0] list-decimal list-inside">
+            <li>Install the DataLens Chrome extension</li>
+            <li>Sign in to this app</li>
+            <li>Click "Sync to Extension" above</li>
+            <li>Open any tab, click the DataLens icon, hit Start</li>
+          </ol>
         </div>
       </div>
     </main>
