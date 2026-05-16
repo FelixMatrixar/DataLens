@@ -89,8 +89,8 @@ export class VizAgent {
     try {
       const raw = await callOpenRouter({
         apiKey: openrouterApiKey,
-        model: "google/gemini-flash-1.5",
-        fallbackModels: ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"],
+        model: "google/gemini-3-flash-preview",
+        fallbackModels: ["google/gemini-3.1-flash-lite-preview", "google/gemini-2.5-flash"],
         systemPrompt: VIZ_SYSTEM_PROMPT,
         userMessage: `Segment: "${text}"`,
         maxTokens: 600,

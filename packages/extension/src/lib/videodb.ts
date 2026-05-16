@@ -52,7 +52,10 @@ export async function createSandbox(
     tier,
     idle_timeout: idleTimeout,
   });
-  return res.data as Sandbox;
+  console.log("[DataLens] sandbox response:", JSON.stringify(res));
+  const data = res.data;
+  // API may return id as `id` or `sandbox_id`
+  return { ...data, id: data.id ?? data.sandbox_id } as Sandbox;
 }
 
 export async function getSandbox(apiKey: string, sandboxId: string): Promise<Sandbox> {
@@ -77,4 +80,26 @@ export async function waitForSandbox(
 
 export async function stopSandbox(apiKey: string, sandboxId: string): Promise<void> {
   await videodbPost(`/sandbox/${sandboxId}/stop/`, apiKey, {});
+}
+
+// ── Video upload + indexing ──────────────────────────────────────
+
+export async function uploadVideo(
+  url: string,
+  collectionId: string,
+  apiKey: string
+): Promise<string> {
+  const res = await videodbPost(`/collection/${collectionId}/video`, apiKey, { url });
+  return res.data.id as string;
+}
+
+export async function indexVideo(
+  videoId: string,
+  collectionId: string,
+  apiKey: string
+): Promise<void> {
+  await Promise.allSettled([
+    videodbPost(`/collection/${collectionId}/video/${videoId}/index`, apiKey, { index_type: "spoken_word" }),
+    videodbPost(`/collection/${collectionId}/video/${videoId}/index`, apiKey, { index_type: "scene" }),
+  ]);
 }

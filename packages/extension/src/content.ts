@@ -1,3 +1,5 @@
+// ── Overlay ────────────────────────────────────────────────────────────────
+
 let container = document.getElementById("datalens-overlay");
 if (!container) {
   container = document.createElement("div");
@@ -18,8 +20,10 @@ if (!container) {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "SHOW_CHART")  showChart(msg);
-  if (msg.type === "HIDE_CHARTS") clearCharts();
+  if (msg.type === "SHOW_CHART")   showChart(msg);
+  if (msg.type === "HIDE_CHARTS")  clearCharts();
+  if (msg.type === "START_SPEECH") startSpeech();
+  if (msg.type === "STOP_SPEECH")  stopSpeech();
 });
 
 function showChart(msg: { chartUrl: string; title: string; duration: number }): void {
@@ -33,33 +37,17 @@ function showChart(msg: { chartUrl: string; title: string; duration: number }): 
     animation: datalens-slide-in 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards;
     pointer-events: auto;
   `;
-
   const titleEl = document.createElement("div");
-  titleEl.style.cssText = `
-    padding: 8px 12px 4px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #A0A0A0;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  `;
+  titleEl.style.cssText = `padding: 8px 12px 4px; font-size: 11px; font-weight: 600;
+    color: #A0A0A0; letter-spacing: 0.05em; text-transform: uppercase;`;
   titleEl.textContent = msg.title;
-
   const img = document.createElement("img");
   img.src = msg.chartUrl;
-  img.style.cssText = `
-    display: block;
-    width: 100%;
-    max-width: 300px;
-    height: auto;
-    padding: 0 8px 8px;
-  `;
-
+  img.style.cssText = `display: block; width: 100%; max-width: 300px; height: auto; padding: 0 8px 8px;`;
   card.addEventListener("click", () => dismissCard(card));
   card.appendChild(titleEl);
   card.appendChild(img);
   container!.appendChild(card);
-
   setTimeout(() => dismissCard(card), msg.duration * 1000);
 }
 
@@ -71,6 +59,59 @@ function dismissCard(card: HTMLElement): void {
 function clearCharts(): void {
   container!.innerHTML = "";
 }
+
+// ── Speech recognition ─────────────────────────────────────────────────────
+
+let recognition: any = null;
+let speechActive = false;
+
+function startSpeech(): void {
+  if (speechActive) return;
+  const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+  if (!SR) {
+    console.warn("[DataLens] SpeechRecognition not available in this context");
+    return;
+  }
+
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+
+  recognition.onresult = (event: any) => {
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (!event.results[i].isFinal) continue;
+      const text: string = event.results[i][0].transcript.trim();
+      if (!text) continue;
+      chrome.runtime.sendMessage({
+        type: "TRANSCRIPT_CHUNK",
+        text,
+        timestamp: Date.now() / 1000,
+      }).catch(() => {});
+    }
+  };
+
+  recognition.onerror = (e: any) => {
+    if (e.error === "no-speech") return;
+    console.warn("[DataLens] Speech error:", e.error);
+  };
+
+  recognition.onend = () => {
+    if (speechActive) recognition.start(); // auto-restart
+  };
+
+  speechActive = true;
+  recognition.start();
+  console.log("[DataLens] Speech recognition started");
+}
+
+function stopSpeech(): void {
+  speechActive = false;
+  recognition?.stop();
+  recognition = null;
+}
+
+// ── Styles ─────────────────────────────────────────────────────────────────
 
 if (!document.getElementById("datalens-styles")) {
   const style = document.createElement("style");

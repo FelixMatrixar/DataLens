@@ -60,14 +60,16 @@ export class MemoryAgent {
       });
 
       // 5. Stop sandbox to conserve credits
-      await stopSandbox(config.videodbApiKey, captureState.sandboxId).catch(console.warn);
+      if (captureState.sandboxId)
+        await stopSandbox(config.videodbApiKey, captureState.sandboxId).catch(console.warn);
 
       chrome.runtime.sendMessage({ type: "MEMORY_STATUS", status: "ready", videoId })
         .catch(() => {});
 
     } catch (err) {
       // Still try to stop the sandbox on error
-      stopSandbox(config.videodbApiKey, captureState.sandboxId).catch(console.warn);
+      if (captureState.sandboxId)
+        stopSandbox(config.videodbApiKey, captureState.sandboxId).catch(console.warn);
 
       chrome.runtime.sendMessage({
         type: "MEMORY_STATUS",

@@ -5,12 +5,16 @@ import { getConfig }    from "./lib/storage";
 const bus = new AgentBus();
 const captureAgent = new CaptureAgent();
 
+// ── External messages (from frontend settings page) ───────────────────────
+
 chrome.runtime.onMessageExternal.addListener(async (msg, _sender, sendResponse) => {
   if (msg.type === "SAVE_CONFIG") {
     await chrome.storage.sync.set({ userConfig: msg.payload });
     sendResponse({ ok: true });
   }
 });
+
+// ── Internal messages ─────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
 
@@ -22,19 +26,18 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
     }
 
     try {
-      await captureAgent.start(config, bus);
+      // Get the active tab's URL so CaptureAgent can upload it to VideoDB
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabUrl = tab?.url;
+
+      await captureAgent.start(config, bus, tabUrl);
       bus.summary.start();
 
-      const state = captureAgent.getState()!;
-      (globalThis as any).__captureState = state;
-      (globalThis as any).__overlayCount = 0;
-
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) bus.setActiveTab(tab.id);
 
+      (globalThis as any).__overlayCount = 0;
       chrome.action.setBadgeText({ text: "●" });
       chrome.action.setBadgeBackgroundColor({ color: "#E50000" });
-
       chrome.runtime.sendMessage({ type: "SESSION_STARTED" });
 
     } catch (err) {
@@ -47,11 +50,6 @@ chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
     const finalSummary = bus.summary.stop();
 
     chrome.action.setBadgeText({ text: "" });
-    (globalThis as any).__captureState = null;
-
-    if (captureState) {
-      bus.memory.finalize(captureState, finalSummary).catch(console.error);
-    }
 
     chrome.runtime.sendMessage({
       type: "SESSION_STOPPED",

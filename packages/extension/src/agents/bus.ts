@@ -26,6 +26,7 @@ export class AgentBus {
   setActiveTab(tabId: number): void { this.activeTabId = tabId; }
 
   async route(event: VideoDBEvent): Promise<void> {
+    if (!event?.channel || !event?.data) return;
     const ts = (event.data.timestamp_ms ?? 0) / 1000;
     const tabId = this.activeTabId ?? 0;
 
