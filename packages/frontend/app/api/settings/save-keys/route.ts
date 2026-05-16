@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   const { error } = await supabaseAdmin
     .from("profiles")
     .upsert(
-      { clerk_user_id: userId, videodb_key_enc: videodbKeyEnc, openrouter_key_enc: openrouterKeyEnc },
+      { clerk_user_id: userId, email: "", videodb_key_enc: videodbKeyEnc, openrouter_key_enc: openrouterKeyEnc },
       { onConflict: "clerk_user_id" }
     );
 
