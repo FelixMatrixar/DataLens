@@ -30,7 +30,8 @@ export default function ControlApp(): React.ReactElement {
   const [auth, setAuth] = useState<AuthState>("idle");
   const [session, setSession] = useState<SessionState>("idle");
   const [devices, setDevices] = useState<{ mics: Device[]; systemAudio: Device[]; displays: Device[] } | null>(null);
-  const [selectedMic, setSelectedMic] = useState("");
+  const [selectedDisplay, setSelectedDisplay] = useState("");
+  const [selectedAudio, setSelectedAudio] = useState("");
   const [log, setLog] = useState<string[]>([]);
 
   const addLog = (msg: string) =>
@@ -120,19 +121,31 @@ export default function ControlApp(): React.ReactElement {
       )}
 
       {devices && (
-        <div style={s.field}>
-          <label style={s.label}>Microphone</label>
-          <select style={s.select} value={selectedMic} onChange={e => setSelectedMic(e.target.value)}>
-            <option value="">Default mic</option>
-            {devices.mics.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </div>
+        <>
+          <div style={s.field}>
+            <label style={s.label}>Display</label>
+            <select style={s.select} value={selectedDisplay} onChange={e => setSelectedDisplay(e.target.value)}>
+              <option value="">Auto-select</option>
+              {devices.displays.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>System Audio</label>
+            <select style={s.select} value={selectedAudio} onChange={e => setSelectedAudio(e.target.value)}>
+              <option value="">Auto-select</option>
+              {devices.systemAudio.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+        </>
       )}
 
       <div style={s.actions}>
         {!isActive
           ? <button style={{ ...s.btn, ...s.btnGreen }} disabled={isBusy}
-              onClick={() => window.recorderAPI.startCapture({ micId: selectedMic || undefined })}>
+              onClick={() => window.recorderAPI.startCapture({
+                displayId: selectedDisplay || undefined,
+                systemAudioId: selectedAudio || undefined,
+              })}>
               {isBusy ? "..." : "Start Capture"}
             </button>
           : <button style={{ ...s.btn, ...s.btnRed }}

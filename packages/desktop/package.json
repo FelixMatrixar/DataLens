@@ -11,8 +11,9 @@
     "preview": "electron-vite preview"
   },
   "dependencies": {
-    "videodb": "^0.2.4",
-    "electron-store": "^8.1.0"
+    "electron-store": "^8.1.0",
+    "recharts": "^3.8.1",
+    "videodb": "^0.2.4"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^1.0.1",
@@ -30,8 +31,16 @@
   "build": {
     "appId": "io.datalens.app",
     "productName": "DataLens",
-    "directories": { "output": "release" },
-    "win": { "target": "nsis", "icon": "resources/icon.ico" },
-    "mac": { "target": "dmg", "icon": "resources/icon.icns" }
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.icns"
+    }
   }
 }

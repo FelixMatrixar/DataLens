@@ -1,6 +1,7 @@
 import { BrowserWindow, screen } from "electron";
 import { join } from "path";
-import { is } from "@electron-toolkit/utils";
+
+const devRendererUrl = process.env["ELECTRON_RENDERER_URL"];
 
 export function createControlWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -16,8 +17,8 @@ export function createControlWindow(): BrowserWindow {
     },
   });
 
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  if (devRendererUrl) {
+    win.loadURL(devRendererUrl);
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }
@@ -49,8 +50,8 @@ export function createOverlayWindow(): BrowserWindow {
 
   win.setIgnoreMouseEvents(true, { forward: true });
 
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}?window=overlay`);
+  if (devRendererUrl) {
+    win.loadURL(`${devRendererUrl}?window=overlay`);
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"), { query: { window: "overlay" } });
   }

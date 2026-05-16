@@ -1,4 +1,5 @@
 import { app, ipcMain } from "electron";
+import { execSync } from "child_process";
 import { createControlWindow, createOverlayWindow } from "./windows";
 import { registerCaptureHandlers } from "./ipc/capture";
 import { registerOverlayHandlers } from "./ipc/overlay";
@@ -39,4 +40,16 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  try {
+    if (process.platform === "win32") {
+      execSync("taskkill /F /IM capture.exe /T", { stdio: "ignore" });
+    } else {
+      execSync("pkill -f capture || true", { stdio: "ignore" });
+    }
+  } catch {
+    // Binary wasn't running — fine
+  }
 });
