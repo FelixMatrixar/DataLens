@@ -5,6 +5,13 @@ import { getConfig }    from "./lib/storage";
 const bus = new AgentBus();
 const captureAgent = new CaptureAgent();
 
+chrome.runtime.onMessageExternal.addListener(async (msg, _sender, sendResponse) => {
+  if (msg.type === "SAVE_CONFIG") {
+    await chrome.storage.sync.set({ userConfig: msg.payload });
+    sendResponse({ ok: true });
+  }
+});
+
 chrome.runtime.onMessage.addListener(async (msg, _sender, sendResponse) => {
 
   if (msg.type === "START_SESSION") {

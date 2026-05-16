@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "Live data visualization powered by AI agents",
   "permissions": ["activeTab", "storage", "notifications", "tabs"],
+  "externally_connectable": {
+    "matches": ["https://*.vercel.app/*", "http://localhost:3000/*", "http://localhost/*"]
+  },
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.ts",

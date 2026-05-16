@@ -31,7 +31,7 @@ export default function SettingsPage() {
       // Push config to extension if installed
       const extId = process.env.NEXT_PUBLIC_EXTENSION_ID;
       const cr = (globalThis as any).chrome;
-      if (extId && cr?.runtime?.id) {
+      if (extId && cr?.runtime) {
         cr.runtime.sendMessage(extId, {
           type: "SAVE_CONFIG",
           payload: {
