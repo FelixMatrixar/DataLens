@@ -26,7 +26,7 @@ async function getSession(id: string, userId: string) {
 }
 
 export default async function SessionPage({ params }: { params: { id: string } }) {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) redirect("/login");
 
   const result = await getSession(params.id, userId);

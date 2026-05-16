@@ -43,6 +43,11 @@ export class AgentBus {
         await this.viz.handleScene(event.data.description, ts, tabId);
         break;
 
+      case "audio_index":
+        if (!event.data.description) return;
+        this.summary.addAudioIndex(event.data.description, ts);
+        break;
+
       case "alert":
         await this.alert.handleAlert(event.data as any);
         break;

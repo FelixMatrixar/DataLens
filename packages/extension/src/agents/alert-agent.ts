@@ -1,5 +1,3 @@
-import { callOpenRouter } from "../lib/openrouter";
-import { getConfig } from "../lib/storage";
 import type { UserAlert } from "../types/config";
 
 export interface AlertEvent {
@@ -8,13 +6,6 @@ export interface AlertEvent {
   timestamp: number;
   data: { text: string };
 }
-
-const ALERT_CLASSIFIER_PROMPT = `
-You are a real-time content monitor. Given a scene description or transcript segment,
-determine if it matches the user's alert condition.
-
-Return ONLY raw JSON: { "matches": true|false, "reason": "<one sentence>" }
-`.trim();
 
 export class AlertAgent {
   private userAlerts: UserAlert[] = [];
@@ -26,9 +17,6 @@ export class AlertAgent {
   }
 
   async handleAlert(event: AlertEvent): Promise<void> {
-    const config = await getConfig();
-    if (!config) return;
-
     const dedupKey = `${event.label}:${Math.floor(event.timestamp / 60)}`;
     if (this.firedAlerts.has(dedupKey)) return;
     this.firedAlerts.set(dedupKey, Date.now());
@@ -38,54 +26,34 @@ export class AlertAgent {
 
     if (event.label === "data_trigger") return;
 
+    const text = event.data.text;
     for (const userAlert of this.userAlerts) {
-      const matched = await this.classifyAlert(
-        event.data.text,
-        userAlert,
-        config.openrouterApiKey
-      );
+      if (!this.matchesKeyword(text, userAlert.keyword)) continue;
 
-      if (matched) {
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon48.png",
-          title: `DataLens: ${userAlert.description}`,
-          message: event.data.text.slice(0, 100),
-        });
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icons/icon48.png",
+        title: `DataLens: ${userAlert.description}`,
+        message: text.slice(0, 100),
+      });
 
-        chrome.action.setBadgeText({ text: "!" });
-        chrome.action.setBadgeBackgroundColor({ color: "#E50000" });
+      chrome.action.setBadgeText({ text: "!" });
+      chrome.action.setBadgeBackgroundColor({ color: "#E50000" });
 
-        chrome.runtime.sendMessage({
-          type: "ALERT_FIRED",
-          payload: {
-            alertId: userAlert.id,
-            description: userAlert.description,
-            timestamp: event.timestamp,
-            excerpt: event.data.text,
-          },
-        }).catch(() => {});
-      }
+      chrome.runtime.sendMessage({
+        type: "ALERT_FIRED",
+        payload: {
+          alertId: userAlert.id,
+          description: userAlert.description,
+          timestamp: event.timestamp,
+          excerpt: text,
+        },
+      }).catch(() => {});
     }
   }
 
-  private async classifyAlert(
-    text: string,
-    alert: UserAlert,
-    apiKey: string
-  ): Promise<boolean> {
-    try {
-      const raw = await callOpenRouter({
-        apiKey,
-        model: "google/gemini-flash-1.5",
-        systemPrompt: ALERT_CLASSIFIER_PROMPT,
-        userMessage: `Alert condition: "${alert.keyword}"\nContent: "${text}"`,
-        maxTokens: 100,
-        temperature: 0,
-        jsonMode: true,
-      });
-      if (!raw) return false;
-      return JSON.parse(raw).matches === true;
-    } catch { return false; }
+  private matchesKeyword(text: string, keyword: string): boolean {
+    const haystack = text.toLowerCase();
+    return keyword.toLowerCase().split(/\s+/).every(word => haystack.includes(word));
   }
 }

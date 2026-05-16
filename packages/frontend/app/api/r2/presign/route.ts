@@ -12,7 +12,7 @@ const s3 = new S3Client({
 });
 
 export async function GET(req: Request) {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { searchParams } = new URL(req.url);

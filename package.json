@@ -1,0 +1,14 @@
+{
+  "name": "datalens",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:extension": "pnpm --filter extension build",
+    "build:frontend": "pnpm --filter frontend build",
+    "dev:extension": "pnpm --filter extension dev",
+    "dev:frontend": "pnpm --filter frontend dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

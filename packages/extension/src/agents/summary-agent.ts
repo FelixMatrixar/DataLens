@@ -1,36 +1,21 @@
-import { callOpenRouter } from "../lib/openrouter";
-import { getConfig } from "../lib/storage";
 import type { SummaryUpdate } from "../types/agents";
 
-interface TranscriptEntry {
-  text: string;
+interface AudioIndexEntry {
+  description: string;
   timestamp: number;
 }
 
-const SUMMARY_SYSTEM_PROMPT = `
-You are a live meeting analyst. You receive a rolling transcript from a live session.
-Your job: produce a structured JSON summary of what has been discussed.
-
-Return ONLY raw JSON, no markdown:
-{
-  "keyPoints": ["<3-5 concise bullet points — most important takeaways>"],
-  "currentTopic": "<one sentence: what is being discussed right now>",
-  "dataPoints": ["<every concrete number, metric, or percentage mentioned, with context>"]
-}
-`.trim();
+const DATA_PATTERN = /\b\d[\d,.]*\s*(%|percent|million|billion|trillion|thousand|k|x|bps|ms|fps|px|gb|mb|tb)?\b/gi;
 
 export class SummaryAgent {
-  private buffer: TranscriptEntry[] = [];
+  private audioBuffer: AudioIndexEntry[] = [];
   private readonly WINDOW_MS = 5 * 60 * 1_000;
   private readonly UPDATE_INTERVAL_MS = 60_000;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastSummary: SummaryUpdate | null = null;
 
   start(): void {
-    this.intervalId = setInterval(
-      () => this.generateSummary(),
-      this.UPDATE_INTERVAL_MS
-    );
+    this.intervalId = setInterval(() => this.generateSummary(), this.UPDATE_INTERVAL_MS);
   }
 
   stop(): SummaryUpdate | null {
@@ -38,69 +23,72 @@ export class SummaryAgent {
     return this.lastSummary;
   }
 
-  addTranscript(text: string, timestamp: number): void {
-    this.buffer.push({ text, timestamp });
-    const cutoff = Date.now() - this.WINDOW_MS;
-    this.buffer = this.buffer.filter(e => e.timestamp * 1000 > cutoff);
+  // kept for bus.ts compatibility — audio_index events are the primary input now
+  addTranscript(_text: string, _timestamp: number): void {}
+
+  addAudioIndex(description: string, timestamp: number): void {
+    this.audioBuffer.push({ description, timestamp });
+    const cutoff = Date.now() / 1000 - this.WINDOW_MS / 1000;
+    this.audioBuffer = this.audioBuffer.filter(e => e.timestamp > cutoff);
   }
 
-  private async generateSummary(): Promise<void> {
-    if (this.buffer.length === 0) return;
-    const config = await getConfig();
-    if (!config) return;
-
-    const transcriptText = this.buffer.map(e => e.text).join(" ");
-
-    try {
-      const raw = await callOpenRouter({
-        apiKey: config.openrouterApiKey,
-        model: "google/gemini-flash-1.5",
-        fallbackModels: ["google/gemini-2.5-flash-lite"],
-        systemPrompt: SUMMARY_SYSTEM_PROMPT,
-        userMessage: `Transcript (last 5 minutes):\n"${transcriptText}"`,
-        maxTokens: 400,
-        temperature: 0.2,
-        jsonMode: true,
-      });
-
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      this.lastSummary = { ...parsed, updatedAt: Date.now() };
-
-      chrome.runtime.sendMessage({
-        type: "SUMMARY_UPDATE",
-        payload: this.lastSummary,
-      }).catch(() => { /* popup may be closed */ });
-
-    } catch { /* non-critical */ }
+  private generateSummary(): void {
+    const recent = this.recentEntries(this.WINDOW_MS);
+    if (recent.length === 0) return;
+    this.lastSummary = this.buildSummary(recent, false);
+    chrome.runtime.sendMessage({
+      type: "SUMMARY_UPDATE",
+      payload: this.lastSummary,
+    }).catch(() => {});
   }
 
   async generateFinalSummary(): Promise<SummaryUpdate | null> {
-    const config = await getConfig();
-    if (!config || this.buffer.length === 0) return null;
+    if (this.audioBuffer.length === 0) return null;
+    return this.buildSummary(this.audioBuffer, true);
+  }
 
-    const FINAL_PROMPT = `
-You are a post-session analyst. Produce a complete structured summary of the full session.
-Return ONLY raw JSON:
-{
-  "keyPoints": ["<5-8 most important takeaways>"],
-  "currentTopic": "<one-sentence overall session description>",
-  "dataPoints": ["<every data point with full context>"],
-  "actionItems": ["<any stated next steps, decisions, or commitments>"]
-}`.trim();
+  private recentEntries(windowMs: number): AudioIndexEntry[] {
+    const cutoff = Date.now() / 1000 - windowMs / 1000;
+    return this.audioBuffer.filter(e => e.timestamp > cutoff);
+  }
 
-    const fullTranscript = this.buffer.map(e => e.text).join(" ");
-    const raw = await callOpenRouter({
-      apiKey: config.openrouterApiKey,
-      model: "google/gemini-flash-1.5",
-      systemPrompt: FINAL_PROMPT,
-      userMessage: `Full session transcript:\n"${fullTranscript}"`,
-      maxTokens: 800,
-      temperature: 0.2,
-      jsonMode: true,
-    });
+  private buildSummary(entries: AudioIndexEntry[], isFinal: boolean): SummaryUpdate {
+    const descriptions = entries.map(e => e.description);
 
-    if (!raw) return null;
-    return { ...JSON.parse(raw), updatedAt: Date.now() };
+    const currentTopic = descriptions[descriptions.length - 1]
+      ?.split(/[.!?]/)[0]?.trim() ?? "No content yet";
+
+    const maxPoints = isFinal ? 8 : 5;
+    const keyPoints = descriptions
+      .flatMap(d => d.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 20))
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .slice(-maxPoints);
+
+    const dataPoints: string[] = [];
+    for (const desc of descriptions) {
+      const matches = desc.match(DATA_PATTERN);
+      if (!matches) continue;
+      for (const match of matches) {
+        const idx = desc.indexOf(match);
+        const context = desc.slice(Math.max(0, idx - 30), Math.min(desc.length, idx + match.length + 30)).trim();
+        if (!dataPoints.includes(context)) dataPoints.push(context);
+      }
+    }
+
+    const result: SummaryUpdate = {
+      keyPoints: keyPoints.length > 0 ? keyPoints : [currentTopic],
+      currentTopic,
+      dataPoints,
+      updatedAt: Date.now(),
+    };
+
+    if (isFinal) {
+      result.actionItems = descriptions
+        .flatMap(d => d.split(/[.!?]+/).map(s => s.trim()))
+        .filter(s => /\b(will|should|need to|next step|action|follow.?up|decide|commit)\b/i.test(s) && s.length > 15)
+        .slice(0, 5);
+    }
+
+    return result;
   }
 }

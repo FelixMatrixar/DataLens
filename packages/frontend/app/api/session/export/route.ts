@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const body = await req.json();
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   // Called by VizAgent to record each overlay
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) return new Response("Unauthorized", { status: 401 });
 
   const { sessionId, timestamp, chartType, chartUrl, title } = await req.json();

@@ -19,7 +19,7 @@ async function getSessions(userId: string) {
 }
 
 export default async function DashboardPage() {
-  const { userId } = auth();
+  const { userId } = await auth();
   if (!userId) redirect("/login");
 
   const sessions = await getSessions(userId);

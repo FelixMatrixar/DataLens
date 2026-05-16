@@ -47,10 +47,10 @@ The extension runs **five specialized agents**, each with a distinct role. They 
 | Agent | Input | Output | Model |
 |---|---|---|---|
 | **Capture Agent** | User action (start/stop) | CaptureSession, RTStream, WebSocket stream | — (API calls only) |
-| **Viz Agent** | Transcript chunk / scene alert | Chart PNG overlaid on active tab | `google/gemini-3-flash` via OpenRouter |
-| **Summary Agent** | Rolling transcript buffer | Live running summary, key points list | `google/gemini-3-flash` via OpenRouter |
+| **Viz Agent** | Transcript chunk / scene alert | Chart PNG overlaid on active tab | `google/gemini-flash-1.5` via OpenRouter |
+| **Summary Agent** | VideoDB `audio_index` events (Qwen 9B, 30s batches) | Live running summary, key points list | — (client-side aggregation of Qwen 9B output) |
 | **Memory Agent** | Full session transcript + scenes | Indexed, searchable Video asset in VideoDB | — (VideoDB SDK) |
-| **Alert Agent** | Scene index events | Browser notification + badge count | `google/gemini-3-flash` via OpenRouter |
+| **Alert Agent** | Scene index / alert events | Browser notification + badge count | — (client-side keyword match) |
 
 ---
 
@@ -968,47 +968,29 @@ export class VizAgent {
 
 ## Agent 3 — Summary Agent (`summary-agent.ts`)
 
-The Summary Agent maintains a rolling window of transcript text and periodically generates a live summary of what has been discussed so far. It pushes updates to the extension popup so the user can glance at a live "key points" list without switching tabs.
+The Summary Agent consumes VideoDB `audio_index` events — structured summaries already produced by Qwen 9B running in the VideoDB sandbox every 30 seconds. It aggregates these into a rolling `SummaryUpdate` without any LLM call. Every 60 seconds it emits an update to the popup.
 
 ### Responsibilities
-- Buffer all incoming transcript chunks in a sliding window (last 5 minutes)
-- Every 60 seconds (or on demand), call the LLM for a structured summary
+- Accumulate `audio_index` descriptions in a 5-minute sliding window via `addAudioIndex()`
+- Every 60 seconds, derive `keyPoints`, `currentTopic`, and `dataPoints` from the buffer (client-side)
 - Emit `SUMMARY_UPDATE` to popup via `chrome.runtime.sendMessage`
-- On session end, generate a full structured summary saved to Supabase
+- On session end, produce a final summary with `actionItems` from the full buffer
 
 ```typescript
 // packages/extension/src/agents/summary-agent.ts
-import { callOpenRouter } from "../lib/openrouter";
-import { getConfig } from "../lib/storage";
+import type { SummaryUpdate } from "../types/agents";
 
-interface TranscriptEntry {
-  text: string;
+interface AudioIndexEntry {
+  description: string;
   timestamp: number;
 }
 
-interface SummaryUpdate {
-  keyPoints: string[];       // 3-5 bullet points
-  currentTopic: string;      // one-line description of what's being discussed right now
-  dataPoints: string[];      // all concrete numbers/metrics mentioned so far
-  updatedAt: number;
-}
-
-const SUMMARY_SYSTEM_PROMPT = `
-You are a live meeting analyst. You receive a rolling transcript from a live session.
-Your job: produce a structured JSON summary of what has been discussed.
-
-Return ONLY raw JSON, no markdown:
-{
-  "keyPoints": ["<3-5 concise bullet points — most important takeaways>"],
-  "currentTopic": "<one sentence: what is being discussed right now>",
-  "dataPoints": ["<every concrete number, metric, or percentage mentioned, with context>"]
-}
-`.trim();
+const DATA_PATTERN = /\b\d[\d,.]*\s*(%|percent|million|billion|trillion|thousand|k|x|bps|ms|fps|px|gb|mb|tb)?\b/gi;
 
 export class SummaryAgent {
-  private buffer: TranscriptEntry[] = [];
-  private readonly WINDOW_MS = 5 * 60 * 1_000;   // 5-minute rolling window
-  private readonly UPDATE_INTERVAL_MS = 60_000;    // summarize every 60s
+  private audioBuffer: AudioIndexEntry[] = [];
+  private readonly WINDOW_MS = 5 * 60 * 1_000;
+  private readonly UPDATE_INTERVAL_MS = 60_000;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastSummary: SummaryUpdate | null = null;
 
@@ -1021,74 +1003,66 @@ export class SummaryAgent {
     return this.lastSummary;
   }
 
-  addTranscript(text: string, timestamp: number): void {
-    this.buffer.push({ text, timestamp });
-    // Prune entries outside the rolling window
-    const cutoff = Date.now() - this.WINDOW_MS;
-    this.buffer = this.buffer.filter(e => e.timestamp * 1000 > cutoff);
+  // kept for bus.ts compatibility — audio_index events are the primary input now
+  addTranscript(_text: string, _timestamp: number): void {}
+
+  addAudioIndex(description: string, timestamp: number): void {
+    this.audioBuffer.push({ description, timestamp });
+    const cutoff = Date.now() / 1000 - this.WINDOW_MS / 1000;
+    this.audioBuffer = this.audioBuffer.filter(e => e.timestamp > cutoff);
   }
 
-  private async generateSummary(): Promise<void> {
-    if (this.buffer.length === 0) return;
-    const config = await getConfig();
-    if (!config) return;
-
-    const transcriptText = this.buffer
-      .map(e => e.text)
-      .join(" ");
-
-    try {
-      const raw = await callOpenRouter({
-        apiKey: config.openrouterApiKey,
-        model: "google/gemini-3-flash",
-        fallbackModels: ["google/gemini-2.5-flash-lite"],
-        systemPrompt: SUMMARY_SYSTEM_PROMPT,
-        userMessage: `Transcript (last 5 minutes):\n"${transcriptText}"`,
-        maxTokens: 400,
-        temperature: 0.2,
-        jsonMode: true,
-      });
-
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      this.lastSummary = { ...parsed, updatedAt: Date.now() };
-
-      // Push to popup
-      chrome.runtime.sendMessage({
-        type: "SUMMARY_UPDATE",
-        payload: this.lastSummary,
-      }).catch(() => { /* popup may be closed */ });
-
-    } catch { /* non-critical */ }
+  private generateSummary(): void {
+    const recent = this.recentEntries(this.WINDOW_MS);
+    if (recent.length === 0) return;
+    this.lastSummary = this.buildSummary(recent, false);
+    chrome.runtime.sendMessage({
+      type: "SUMMARY_UPDATE",
+      payload: this.lastSummary,
+    }).catch(() => {});
   }
 
   async generateFinalSummary(): Promise<SummaryUpdate | null> {
-    const config = await getConfig();
-    if (!config || this.buffer.length === 0) return null;
+    if (this.audioBuffer.length === 0) return null;
+    return this.buildSummary(this.audioBuffer, true);
+  }
 
-    const FINAL_PROMPT = `
-You are a post-session analyst. Produce a complete structured summary of the full session.
-Return ONLY raw JSON:
-{
-  "keyPoints": ["<5-8 most important takeaways>"],
-  "currentTopic": "<one-sentence overall session description>",
-  "dataPoints": ["<every data point with full context>"],
-  "actionItems": ["<any stated next steps, decisions, or commitments>"]
-}`.trim();
+  private recentEntries(windowMs: number): AudioIndexEntry[] {
+    const cutoff = Date.now() / 1000 - windowMs / 1000;
+    return this.audioBuffer.filter(e => e.timestamp > cutoff);
+  }
 
-    const fullTranscript = this.buffer.map(e => e.text).join(" ");
-    const raw = await callOpenRouter({
-      apiKey: config.openrouterApiKey,
-      model: "google/gemini-3-flash",
-      systemPrompt: FINAL_PROMPT,
-      userMessage: `Full session transcript:\n"${fullTranscript}"`,
-      maxTokens: 800,
-      temperature: 0.2,
-      jsonMode: true,
-    });
-
-    if (!raw) return null;
-    return { ...JSON.parse(raw), updatedAt: Date.now() };
+  private buildSummary(entries: AudioIndexEntry[], isFinal: boolean): SummaryUpdate {
+    const descriptions = entries.map(e => e.description);
+    const currentTopic = descriptions[descriptions.length - 1]?.split(/[.!?]/)[0]?.trim() ?? "No content yet";
+    const maxPoints = isFinal ? 8 : 5;
+    const keyPoints = descriptions
+      .flatMap(d => d.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 20))
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .slice(-maxPoints);
+    const dataPoints: string[] = [];
+    for (const desc of descriptions) {
+      const matches = desc.match(DATA_PATTERN);
+      if (!matches) continue;
+      for (const match of matches) {
+        const idx = desc.indexOf(match);
+        const context = desc.slice(Math.max(0, idx - 30), Math.min(desc.length, idx + match.length + 30)).trim();
+        if (!dataPoints.includes(context)) dataPoints.push(context);
+      }
+    }
+    const result: SummaryUpdate = {
+      keyPoints: keyPoints.length > 0 ? keyPoints : [currentTopic],
+      currentTopic,
+      dataPoints,
+      updatedAt: Date.now(),
+    };
+    if (isFinal) {
+      result.actionItems = descriptions
+        .flatMap(d => d.split(/[.!?]+/).map(s => s.trim()))
+        .filter(s => /\b(will|should|need to|next step|action|follow.?up|decide|commit)\b/i.test(s) && s.length > 15)
+        .slice(0, 5);
+    }
+    return result;
   }
 }
 ```
@@ -1186,7 +1160,7 @@ export class MemoryAgent {
 
 ## Agent 5 — Alert Agent (`alert-agent.ts`)
 
-The Alert Agent watches the VideoDB `alert` channel for scene-based events. Unlike the Viz Agent (which processes every transcript chunk), the Alert Agent only fires when a pre-configured detection rule triggers — things the user explicitly wants to be notified about that may not warrant a visualization.
+The Alert Agent watches the VideoDB `alert` channel for scene-based events and checks them against user-defined keyword alerts using **client-side string matching** — no LLM call. All words in the keyword phrase must appear in the event text (case-insensitive). This is more reliable for exact keyword triggers and fires with zero added latency.
 
 ### Use cases
 - "Notify me when a competitor's name appears on screen or is spoken"
@@ -1198,8 +1172,7 @@ The Alert Agent watches the VideoDB `alert` channel for scene-based events. Unli
 
 ```typescript
 // packages/extension/src/agents/alert-agent.ts
-import { callOpenRouter } from "../lib/openrouter";
-import { getConfig } from "../lib/storage";
+import type { UserAlert } from "../types/config";
 
 export interface AlertEvent {
   label: string;
@@ -1208,23 +1181,9 @@ export interface AlertEvent {
   data: { text: string };
 }
 
-export interface UserAlert {
-  id: string;
-  keyword: string;        // what to watch for
-  description: string;    // human-readable label
-  enabled: boolean;
-}
-
-const ALERT_CLASSIFIER_PROMPT = `
-You are a real-time content monitor. Given a scene description or transcript segment,
-determine if it matches the user's alert condition.
-
-Return ONLY raw JSON: { "matches": true|false, "reason": "<one sentence>" }
-`.trim();
-
 export class AlertAgent {
   private userAlerts: UserAlert[] = [];
-  private firedAlerts: Map<string, number> = new Map(); // dedup by label+minute
+  private firedAlerts: Map<string, number> = new Map();
   private readonly ALERT_DEDUP_MS = 60_000;
 
   setAlerts(alerts: UserAlert[]): void {
@@ -1232,75 +1191,44 @@ export class AlertAgent {
   }
 
   async handleAlert(event: AlertEvent): Promise<void> {
-    const config = await getConfig();
-    if (!config) return;
-
-    // Dedup — don't fire same alert twice within 60s
     const dedupKey = `${event.label}:${Math.floor(event.timestamp / 60)}`;
     if (this.firedAlerts.has(dedupKey)) return;
     this.firedAlerts.set(dedupKey, Date.now());
 
-    // Prune old entries
     for (const [k, t] of this.firedAlerts)
       if (Date.now() - t > this.ALERT_DEDUP_MS * 2) this.firedAlerts.delete(k);
 
-    // Standard data_trigger alert → already handled by VizAgent
-    // Only process user-defined custom alerts here
     if (event.label === "data_trigger") return;
 
-    // Check custom user alerts
+    const text = event.data.text;
     for (const userAlert of this.userAlerts) {
-      const matched = await this.classifyAlert(
-        event.data.text,
-        userAlert,
-        config.openrouterApiKey
-      );
+      if (!this.matchesKeyword(text, userAlert.keyword)) continue;
 
-      if (matched) {
-        // Browser notification
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon48.png",
-          title: `DataLens: ${userAlert.description}`,
-          message: event.data.text.slice(0, 100),
-        });
+      chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icons/icon48.png",
+        title: `DataLens: ${userAlert.description}`,
+        message: text.slice(0, 100),
+      });
 
-        // Update popup badge
-        chrome.action.setBadgeText({ text: "!" });
-        chrome.action.setBadgeBackgroundColor({ color: "#E50000" });
+      chrome.action.setBadgeText({ text: "!" });
+      chrome.action.setBadgeBackgroundColor({ color: "#E50000" });
 
-        // Log to popup
-        chrome.runtime.sendMessage({
-          type: "ALERT_FIRED",
-          payload: {
-            alertId: userAlert.id,
-            description: userAlert.description,
-            timestamp: event.timestamp,
-            excerpt: event.data.text,
-          },
-        }).catch(() => {});
-      }
+      chrome.runtime.sendMessage({
+        type: "ALERT_FIRED",
+        payload: {
+          alertId: userAlert.id,
+          description: userAlert.description,
+          timestamp: event.timestamp,
+          excerpt: text,
+        },
+      }).catch(() => {});
     }
   }
 
-  private async classifyAlert(
-    text: string,
-    alert: UserAlert,
-    apiKey: string
-  ): Promise<boolean> {
-    try {
-      const raw = await callOpenRouter({
-        apiKey,
-        model: "google/gemini-3-flash",
-        systemPrompt: ALERT_CLASSIFIER_PROMPT,
-        userMessage: `Alert condition: "${alert.keyword}"\nContent: "${text}"`,
-        maxTokens: 100,
-        temperature: 0,
-        jsonMode: true,
-      });
-      if (!raw) return false;
-      return JSON.parse(raw).matches === true;
-    } catch { return false; }
+  private matchesKeyword(text: string, keyword: string): boolean {
+    const haystack = text.toLowerCase();
+    return keyword.toLowerCase().split(/\s+/).every(word => haystack.includes(word));
   }
 }
 ```
@@ -1347,18 +1275,20 @@ export class AgentBus {
     switch (event.channel) {
       case "transcript":
         if (!event.data.text) return;
-        // Fan out to three agents simultaneously — don't await serially
         await Promise.allSettled([
           this.viz.handleTranscript(event.data.text, ts, tabId),
-          this.summary.addTranscript(event.data.text, ts),
-          // MemoryAgent just buffers — no async needed here
+          Promise.resolve(this.summary.addTranscript(event.data.text, ts)),
         ]);
-        (this.memory as any).buffer?.push(event.data.text);
         break;
 
       case "scene_index":
         if (!event.data.description) return;
         await this.viz.handleScene(event.data.description, ts, tabId);
+        break;
+
+      case "audio_index":
+        if (!event.data.description) return;
+        this.summary.addAudioIndex(event.data.description, ts);
         break;
 
       case "alert":
@@ -2059,11 +1989,11 @@ cd ../shared && pnpm init
 ---
 
 ### Phase 6 — Summary + Alert Agents (Day 6–8)
-- [ ] `summary-agent.ts`: 5-minute rolling buffer, 60s interval, `SUMMARY_UPDATE` to popup
-- [ ] `summary-agent.ts`: `generateFinalSummary()` with action items
+- [ ] `summary-agent.ts`: accumulates `audio_index` events (Qwen 9B), 60s interval, `SUMMARY_UPDATE` to popup
+- [ ] `summary-agent.ts`: `generateFinalSummary()` aggregates full audio buffer with action items
 - [ ] Popup: live key-points list, current topic, data points panel
 - [ ] `alert-agent.ts`: dedup by label+minute, browser notification, badge count
-- [ ] Alert classifier using `google/gemini-3-flash` via OpenRouter
+- [ ] Alert classifier using client-side keyword matching (no OpenRouter)
 - [ ] Popup: alert feed with timestamp and excerpt
 - [ ] Settings page: user-defined custom alert keywords (stored in `chrome.storage.sync`)
 
@@ -2169,7 +2099,7 @@ R2_PUBLIC_URL=https://pub-xxx.r2.dev
 |---|---|---|
 | Extension build | **Vite + CRXJS** | Hot reload in dev, MV3 output, TypeScript support |
 | Chart rendering | **OffscreenCanvas + D3 (math only)** | Native browser API; no external process; D3-scale/shape for math only |
-| Detection LLM | **Gemini 3 Flash via OpenRouter** (`google/gemini-3-flash`) | Purpose-built for agentic workflows; near-Pro reasoning; < 1s latency; fallback chain via OpenRouter |
+| Detection LLM | **Gemini Flash 1.5 via OpenRouter** (`google/gemini-flash-1.5`) — VizAgent only | Chart detection requires structured JSON output; only VizAgent uses OpenRouter. SummaryAgent uses Qwen 9B via VideoDB sandbox; AlertAgent uses client-side keyword matching |
 | Auth | **Clerk** | Drop-in `<SignIn />`, Google OAuth, email domain allowlist, Svix webhook enforcement |
 | Database | **Supabase Postgres** | Free tier, service-role-only access, no anon key exposed |
 | API key encryption | **AES-256 (Web Crypto API)** | Server-side only; derived from userId + ENCRYPTION_SECRET |
@@ -2197,10 +2127,10 @@ R2_PUBLIC_URL=https://pub-xxx.r2.dev
 |---|---|---|---|
 | `OffscreenCanvas` unavailable in MV3 service worker | Low | High | Test Phase 4 day 1; fallback: render in offscreen document via `chrome.offscreen` |
 | VideoDB WS connection drops mid-session | Medium | Medium | Exponential backoff reconnect; Summary Agent buffers locally |
-| Gemini 3 Flash rate-limited on OpenRouter | Low | Medium | Fallback chain: `gemini-3-flash` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` |
+| Gemini Flash rate-limited on OpenRouter | Low | Medium | Only affects VizAgent; fallback chain: `gemini-flash-1.5` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` |
 | Content script not re-injected after navigation | Medium | Medium | `chrome.tabs.onUpdated` listener re-injects on `complete` status |
 | R2 CORS blocking PNG load in content script | Medium | Medium | R2 bucket CORS: `AllowedOrigins: ["*"]` for public read |
-| Summary Agent calling LLM every 60s on long sessions | Low | Low | Skip call if buffer hasn't changed since last summary |
+| SummaryAgent audio buffer empty on low-speech sessions | Low | Low | `generateSummary()` no-ops if buffer is empty; no output produced |
 | `chrome.storage.sync` quota (100KB) exceeded by large config | Low | Low | Store only API keys in sync; large state goes in `storage.local` |
 
 ---
@@ -2214,4 +2144,4 @@ R2_PUBLIC_URL=https://pub-xxx.r2.dev
 - **Alert Agent recall:** > 90% of custom keyword matches caught within 5s
 - **Post-session search:** correct clip returned in top 3 results for natural-language queries
 - **Memory Agent:** indexing complete within 3 minutes of session stop
-- **Cost per 30-min session:** < $0.02 in LLM costs (Gemini 3 Flash at $1.50/M output)
+- **Cost per 30-min session:** < $0.02 in LLM costs (Gemini Flash via OpenRouter — VizAgent only)

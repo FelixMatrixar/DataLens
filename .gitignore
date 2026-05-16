@@ -1,2 +1,28 @@
-/.env
-/package.json
+# Dependencies
+**/node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Next.js build output
+packages/frontend/.next/
+packages/frontend/out/
+
+# Extension build output
+packages/extension/dist/
+
+# Vercel
+.vercel/
+
+# pnpm
+.pnpm-store/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.log

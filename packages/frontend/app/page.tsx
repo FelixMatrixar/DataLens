@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import LogoutButton from "@/components/ui/LogoutButton";
 
 export default async function LandingPage() {
-  const { userId } = auth();
+  const { userId } = await auth();
 
   return (
     <main className="min-h-screen bg-[#0B0B0B] text-[#F0F0F0]">
