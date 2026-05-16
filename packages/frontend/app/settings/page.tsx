@@ -7,6 +7,7 @@ export default function SettingsPage() {
   const { user } = useUser();
   const [videodbKey, setVideodbKey] = useState("");
   const [openrouterKey, setOpenrouterKey] = useState("");
+  const [collectionId, setCollectionId] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -37,9 +38,9 @@ export default function SettingsPage() {
           payload: {
             videodbApiKey: videodbKey,
             openrouterApiKey: openrouterKey,
-            userId: user?.id,
+            userId: user?.id ?? "",
             frontendUrl: window.location.origin,
-            videodbCollectionId: "default",
+            videodbCollectionId: collectionId,
           },
         });
       }
@@ -47,10 +48,13 @@ export default function SettingsPage() {
       setSaved(true);
       setVideodbKey("");
       setOpenrouterKey("");
+      setCollectionId("");
     } finally {
       setSaving(false);
     }
   }
+
+  const canSave = !saving && videodbKey && openrouterKey && collectionId;
 
   return (
     <main className="min-h-screen bg-[#0B0B0B] text-[#F0F0F0]">
@@ -72,14 +76,23 @@ export default function SettingsPage() {
               onChange={e => setVideodbKey(e.target.value)}
               className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
             />
-            <a
-              href="https://console.videodb.io"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-[#555] hover:text-[#A0A0A0]"
-            >
+            <a href="https://console.videodb.io" target="_blank" rel="noreferrer" className="text-xs text-[#555] hover:text-[#A0A0A0]">
               Get your VideoDB key →
             </a>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-[#A0A0A0]">VideoDB Collection ID</label>
+            <input
+              type="text"
+              placeholder="col-..."
+              value={collectionId}
+              onChange={e => setCollectionId(e.target.value)}
+              className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
+            />
+            <p className="text-xs text-[#555]">
+              Found in console.videodb.io → your collection → Settings. Looks like <span className="text-[#A0A0A0]">col-abc-123</span>
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -91,24 +104,16 @@ export default function SettingsPage() {
               onChange={e => setOpenrouterKey(e.target.value)}
               className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-sm text-[#F0F0F0] placeholder-[#555] focus:outline-none focus:border-[#E50000]"
             />
-            <a
-              href="https://openrouter.ai/keys"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-[#555] hover:text-[#A0A0A0]"
-            >
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-xs text-[#555] hover:text-[#A0A0A0]">
               Get your OpenRouter key — enables Gemini Flash →
             </a>
-            <p className="text-xs text-[#555]">
-              ~$0.70/month for daily 1-hour sessions. Keys are AES-256 encrypted server-side.
-            </p>
           </div>
 
           {error && <p className="text-xs text-[#E50000]">{error}</p>}
 
           <button
             onClick={saveKeys}
-            disabled={saving || !videodbKey || !openrouterKey}
+            disabled={!canSave}
             className="w-full bg-[#E50000] text-white py-2.5 rounded-lg font-semibold text-sm disabled:opacity-50 hover:bg-red-700 transition"
           >
             {saving ? "Saving..." : saved ? "✓ Saved & pushed to extension" : "Save & Push to Extension"}

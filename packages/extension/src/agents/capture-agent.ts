@@ -190,7 +190,11 @@ export class CaptureAgent {
       `/collection/${config.videodbCollectionId}/websocket`,
       config.videodbApiKey
     );
-    return res.data.ws_url;
+    const wsUrl: string = res.data?.ws_url;
+    if (!wsUrl || (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://"))) {
+      throw new Error(`Invalid WebSocket URL from VideoDB: "${wsUrl}". Check your Collection ID.`);
+    }
+    return wsUrl;
   }
 
   private extractConnectionId(): string {
