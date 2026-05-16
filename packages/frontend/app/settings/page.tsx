@@ -23,7 +23,8 @@ export default function SettingsPage() {
       });
 
       if (!res.ok) {
-        setError("Failed to save keys. Please try again.");
+        const msg = await res.text().catch(() => res.status.toString());
+        setError(`Error ${res.status}: ${msg}`);
         return;
       }
 

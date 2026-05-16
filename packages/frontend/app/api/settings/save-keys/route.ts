@@ -20,6 +20,9 @@ export async function POST(req: Request) {
       { onConflict: "clerk_user_id" }
     );
 
-  if (error) return new Response("DB error", { status: 500 });
+  if (error) {
+    console.error("[save-keys] Supabase error:", error.message, error.code);
+    return new Response(`DB error: ${error.message}`, { status: 500 });
+  }
   return new Response("OK");
 }
