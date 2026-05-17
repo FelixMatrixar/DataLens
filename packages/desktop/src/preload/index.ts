@@ -32,11 +32,17 @@ contextBridge.exposeInMainWorld("authAPI", {
     ipcRenderer.removeAllListeners(channel),
 });
 
+contextBridge.exposeInMainWorld("windowAPI", {
+  resize: (height: number) => ipcRenderer.send("window:resize", height),
+});
+
 contextBridge.exposeInMainWorld("overlayAPI", {
   setIgnoreMouse: (ignore: boolean) =>
     ipcRenderer.send("overlay:ignore-mouse", ignore),
   onShowSpec: (cb: (payload: unknown) => void) =>
     ipcRenderer.on("overlay:show-spec", (_e, payload) => cb(payload)),
+  onTelemetry: (cb: (e: unknown) => void) =>
+    ipcRenderer.on("overlay:telemetry", (_e, event) => cb(event)),
   removeAllListeners: (channel: string) =>
     ipcRenderer.removeAllListeners(channel),
 });

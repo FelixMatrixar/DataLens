@@ -1,7 +1,7 @@
 import { VizAgent } from "./viz-agent";
 import { SummaryAgent } from "./summary-agent";
 import { AlertAgent } from "./alert-agent";
-import type { VideoDBEvent, UVS, SummaryUpdate, AlertFired, UserConfig } from "../../types";
+import type { VideoDBEvent, UVS, SummaryUpdate, AlertFired, UserConfig, TelemetryEvent } from "../../types";
 
 export class AgentBus {
   readonly viz     = new VizAgent();
@@ -16,15 +16,16 @@ export class AgentBus {
   start(
     onChart: (spec: UVS) => void,
     onSummary: (s: SummaryUpdate) => void,
-    onAlert: (a: AlertFired) => void
+    onAlert: (a: AlertFired) => void,
+    onTelemetry?: (e: TelemetryEvent) => void,
   ): void {
     this.viz.setOnChart(onChart);
+    if (onTelemetry) this.viz.setOnLog(onTelemetry);
     this.summary.start(onSummary);
     this.alert.setAlerts(this.config?.userAlerts ?? [], onAlert);
 
-    // Every 60s, try to upgrade accumulated charts into richer combined views
     this.consolidateTimer = setInterval(() => {
-      if (this.config) this.viz.consolidate(this.config.openrouterApiKey);
+      if (this.config) this.viz.consolidate(this.config);
     }, 60_000);
   }
 
@@ -43,7 +44,7 @@ export class AgentBus {
     switch (event.channel) {
       case "transcript": {
         if (!text || !this.config) return;
-        const isFinal = event.data?.is_final !== false; // treat missing as final
+        const isFinal = event.data?.is_final !== false;
         await Promise.allSettled([
           isFinal ? this.viz.handleTranscript(text, this.config) : Promise.resolve(),
           Promise.resolve(this.summary.addTranscript(text, ts)),

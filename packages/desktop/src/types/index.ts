@@ -1,9 +1,19 @@
 export interface UserConfig {
+  provider: "openrouter" | "google";
+  openrouterApiKey?: string;
+  googleAiApiKey?: string;
   videodbApiKey: string;
-  openrouterApiKey: string;
   videodbCollectionId: string;
-  frontendUrl: string;
-  userId: string;
+  frontendUrl?: string;
+  userId?: string;
+  userAlerts?: Array<{ id: string; keyword: string; description: string; enabled: boolean }>;
+}
+
+export interface TelemetryEvent {
+  ts: number;
+  type: "chart" | "no_chart" | "api_call" | "fallback" | "rate_limited" | "error" | "filtered" | "cooldown" | "consolidate";
+  message: string;
+  model?: string;
 }
 
 export interface UVS {

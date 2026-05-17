@@ -45,7 +45,8 @@ export function registerCaptureHandlers(
       bus.start(
         (spec) => sendToOverlay("overlay:show-spec", { spec }),
         (summary) => sendToControl("summary:update", summary),
-        (alert) => sendToControl("alert:fired", alert)
+        (alert) => sendToControl("alert:fired", alert),
+        (e) => sendToOverlay("overlay:telemetry", e),
       );
       stopEventLoop = startEventLoop(
         (event) => bus.route(event),

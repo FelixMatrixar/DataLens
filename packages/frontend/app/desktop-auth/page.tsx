@@ -93,7 +93,7 @@ const css: Record<string, React.CSSProperties> = {
     minHeight: "100vh",
     background: "#0f0f13",
     color: "#e0e0e0",
-    fontFamily: "system-ui, -apple-system, sans-serif",
+    fontFamily: "system-ui, 'Segoe UI', sans-serif",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 declare const window: Window & {
   recorderAPI: {
@@ -7,58 +7,85 @@ declare const window: Window & {
     listDevices: () => Promise<{ ok: boolean; mics?: Device[]; systemAudio?: Device[]; displays?: Device[]; error?: string }>;
     onSessionStatus: (cb: (s: unknown) => void) => void;
     onSummaryUpdate: (cb: (s: unknown) => void) => void;
-    onAlertFired: (cb: (a: unknown) => void) => void;
+    onAlertFired:    (cb: (a: unknown) => void) => void;
     removeAllListeners: (ch: string) => void;
   };
   configAPI: {
-    get: () => Promise<UserConfig | null>;
+    get:   () => Promise<UserConfig | null>;
+    save:  (c: UserConfig) => Promise<{ ok: boolean }>;
+    clear: () => Promise<{ ok: boolean }>;
   };
   authAPI: {
-    signIn: () => Promise<{ ok: boolean; config?: UserConfig; error?: string }>;
+    signIn: () => Promise<{ ok: boolean; error?: string }>;
     signOut: () => Promise<{ ok: boolean }>;
     onStatus: (cb: (s: unknown) => void) => void;
     removeAllListeners: (ch: string) => void;
   };
+  windowAPI: { resize: (h: number) => void };
 };
 
 interface Device { id: string; name: string; }
-interface UserConfig { openrouterApiKey: string; videodbApiKey: string; videodbCollectionId: string; userId?: string; }
-type SessionState = "idle" | "starting" | "active" | "stopping" | "stopped";
-type AuthState = "idle" | "signing-in" | "signed-in";
+interface UserConfig {
+  provider: "openrouter" | "google";
+  openrouterApiKey?: string;
+  googleAiApiKey?: string;
+  videodbApiKey: string;
+  videodbCollectionId: string;
+}
+
+type Session = "idle" | "starting" | "active" | "stopping" | "stopped";
+
+// Window heights for each state
+const H_PILL   = 48;
+const H_DEVICE = 48 + 160; // pill + device picker panel
+const H_SETUP  = 48 + 288; // pill + manual setup form
 
 export default function ControlApp(): React.ReactElement {
-  const [auth, setAuth] = useState<AuthState>("idle");
-  const [session, setSession] = useState<SessionState>("idle");
-  const [devices, setDevices] = useState<{ mics: Device[]; systemAudio: Device[]; displays: Device[] } | null>(null);
-  const [selectedDisplay, setSelectedDisplay] = useState("");
-  const [selectedAudio, setSelectedAudio] = useState("");
-  const [log, setLog] = useState<string[]>([]);
+  const [configured, setConfigured] = useState(false);
+  const [session, setSession]       = useState<Session>("idle");
+  const [expanded, setExpanded]     = useState(false);   // device picker open
+  const [showSetup, setShowSetup]   = useState(false);   // manual setup form
+  const [signingIn, setSigningIn]   = useState(false);
 
-  const addLog = (msg: string) =>
-    setLog(prev => [...prev.slice(-49), `${new Date().toLocaleTimeString()} ${msg}`]);
+  const [devices, setDevices]         = useState<{ mics: Device[]; systemAudio: Device[]; displays: Device[] } | null>(null);
+  const [selDisplay, setSelDisplay]   = useState("");
+  const [selAudio, setSelAudio]       = useState("");
+
+  const [manual, setManual] = useState({
+    provider: "google" as "google" | "openrouter",
+    googleAiApiKey: "", openrouterApiKey: "",
+    videodbApiKey: "", videodbCollectionId: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState("");
+
+  // Timer for recording duration display
+  const [elapsed, setElapsed]  = useState(0);
+  const timerRef               = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Sync window height whenever layout state changes
+  useEffect(() => {
+    let h = H_PILL;
+    if (showSetup)          h = H_SETUP;
+    else if (expanded)      h = H_DEVICE;
+    window.windowAPI.resize(h);
+  }, [showSetup, expanded]);
 
   useEffect(() => {
-    // Check if already signed in
-    window.configAPI.get().then(c => {
-      if (c) setAuth("signed-in");
-    });
+    window.configAPI.get().then(c => { if (c) setConfigured(true); });
 
     window.authAPI.onStatus((s: unknown) => {
-      const status = s as { state: AuthState };
-      setAuth(status.state);
-      if (status.state === "signed-in") addLog("Signed in — keys loaded");
-      if (status.state === "idle") { setDevices(null); setSession("idle"); }
+      const st = s as { state: string };
+      if (st.state === "signed-in") setConfigured(true);
+      if (st.state === "idle")      { setConfigured(false); resetSession(); }
     });
 
     window.recorderAPI.onSessionStatus((s: unknown) => {
-      const status = s as { state: SessionState; error?: string };
-      setSession(status.state);
-      addLog(`Session: ${status.state}${status.error ? ` — ${status.error}` : ""}`);
+      const st = s as { state: Session };
+      setSession(st.state);
+      if (st.state === "active") startTimer();
+      else stopTimer();
     });
-    window.recorderAPI.onSummaryUpdate(() => addLog("Summary updated"));
-    window.recorderAPI.onAlertFired((a: unknown) =>
-      addLog(`Alert: ${(a as { description: string }).description}`)
-    );
 
     return () => {
       ["auth:status", "session:status", "summary:update", "alert:fired"].forEach(ch => {
@@ -68,118 +95,307 @@ export default function ControlApp(): React.ReactElement {
     };
   }, []);
 
-  async function handleSignIn() {
-    const res = await window.authAPI.signIn();
-    if (!res.ok) addLog(`Sign-in error: ${res.error}`);
+  function startTimer() {
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+  }
+  function stopTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }
+  function resetSession() {
+    setSession("idle"); setDevices(null); setExpanded(false); stopTimer();
   }
 
-  async function handleListDevices() {
-    const res = await window.recorderAPI.listDevices();
-    if (res.ok) {
-      setDevices({ mics: res.mics ?? [], systemAudio: res.systemAudio ?? [], displays: res.displays ?? [] });
-    } else {
-      addLog(`Devices error: ${res.error}`);
+  async function handleExpand() {
+    if (!devices) {
+      const res = await window.recorderAPI.listDevices();
+      if (res.ok) setDevices({ mics: res.mics ?? [], systemAudio: res.systemAudio ?? [], displays: res.displays ?? [] });
     }
+    setExpanded(e => !e);
+    setShowSetup(false);
   }
 
-  const isActive = session === "active";
-  const isBusy = session === "starting" || session === "stopping";
-
-  // ── Not signed in ────────────────────────────────────────────────
-  if (auth !== "signed-in") {
-    return (
-      <div style={{ ...s.container, justifyContent: "center", alignItems: "center", gap: 20 }}>
-        <div style={s.logo}>DataLens</div>
-        <p style={s.subtitle}>Sign in to load your API keys securely</p>
-        <button style={{ ...s.btn, ...s.btnBlue, width: 220 }}
-          disabled={auth === "signing-in"}
-          onClick={handleSignIn}>
-          {auth === "signing-in" ? "Opening browser..." : "Sign in with DataLens"}
-        </button>
-        {auth === "signing-in" && (
-          <p style={s.hint}>Complete sign-in in the browser window, then return here.</p>
-        )}
-      </div>
-    );
+  async function handleStart() {
+    setExpanded(false);
+    await window.recorderAPI.startCapture({
+      displayId: selDisplay || undefined,
+      systemAudioId: selAudio || undefined,
+    });
   }
 
-  // ── Signed in ────────────────────────────────────────────────────
+  async function handleStop() {
+    await window.recorderAPI.stopCapture();
+  }
+
+  async function handleSignIn() {
+    setSigningIn(true); setErr("");
+    const res = await window.authAPI.signIn();
+    setSigningIn(false);
+    if (!res.ok) setErr(res.error ?? "Sign-in failed");
+  }
+
+  async function handleSaveManual() {
+    const aiKey = manual.provider === "google" ? manual.googleAiApiKey : manual.openrouterApiKey;
+    if (!aiKey || !manual.videodbApiKey || !manual.videodbCollectionId) {
+      setErr("All fields are required"); return;
+    }
+    setSaving(true); setErr("");
+    await window.configAPI.save({
+      provider:            manual.provider,
+      googleAiApiKey:      manual.googleAiApiKey   || undefined,
+      openrouterApiKey:    manual.openrouterApiKey  || undefined,
+      videodbApiKey:       manual.videodbApiKey,
+      videodbCollectionId: manual.videodbCollectionId,
+    });
+    setSaving(false);
+    setConfigured(true);
+    setShowSetup(false);
+  }
+
+  async function handleSignOut() {
+    await window.authAPI.signOut();
+    await window.configAPI.clear();
+    setConfigured(false);
+    resetSession();
+    setShowSetup(false);
+    setExpanded(false);
+  }
+
+  const isActive  = session === "active";
+  const isBusy    = session === "starting" || session === "stopping";
+
+  function fmtElapsed(s: number): string {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+
   return (
-    <div style={s.container}>
-      <div style={s.header}>
-        <h1 style={s.title}>DataLens</h1>
-        <button style={s.signOutBtn} onClick={() => window.authAPI.signOut()}>Sign out</button>
-      </div>
+    <div style={s.root}>
 
-      <div style={{ ...s.statusBadge, background: isActive ? "#1a3a1a" : "#1a1a2e" }}>
-        <span style={{ ...s.dot, background: isActive ? "#4caf50" : isBusy ? "#ff9800" : "#555" }} />
-        <span>{session.toUpperCase()}</span>
-      </div>
+      {/* ── Setup panel (slides in above pill) ─────────────────────── */}
+      {showSetup && (
+        <div style={s.panel}>
+          <div style={s.panelTitle}>Configure DataLens</div>
 
-      {!devices && (
-        <button style={s.btn} onClick={handleListDevices}>List Capture Devices</button>
+          {/* Provider toggle */}
+          <div style={s.row}>
+            {(["google", "openrouter"] as const).map(p => (
+              <button key={p}
+                style={{ ...s.chip, ...(manual.provider === p ? s.chipOn : {}) }}
+                onClick={() => setManual(m => ({ ...m, provider: p }))}>
+                {p === "google" ? "Google AI" : "OpenRouter"}
+              </button>
+            ))}
+          </div>
+
+          {/* AI key */}
+          <input style={s.input} type="password"
+            placeholder={manual.provider === "google" ? "Google AI key  AIza…" : "OpenRouter key  sk-or-…"}
+            value={manual.provider === "google" ? manual.googleAiApiKey : manual.openrouterApiKey}
+            onChange={e => setManual(m =>
+              manual.provider === "google"
+                ? { ...m, googleAiApiKey: e.target.value }
+                : { ...m, openrouterApiKey: e.target.value }
+            )}
+          />
+          {manual.provider === "google" && (
+            <div style={s.hint}>Fallback: 3.0-flash → 2.5-flash → 2.5-flash-lite</div>
+          )}
+
+          <input style={s.input} type="password"
+            placeholder="VideoDB API key  vdb_…"
+            value={manual.videodbApiKey}
+            onChange={e => setManual(m => ({ ...m, videodbApiKey: e.target.value }))}
+          />
+          <input style={s.input}
+            placeholder="VideoDB Collection ID  col_…"
+            value={manual.videodbCollectionId}
+            onChange={e => setManual(m => ({ ...m, videodbCollectionId: e.target.value }))}
+          />
+
+          {err && <div style={s.errMsg}>{err}</div>}
+
+          <button style={{ ...s.actionBtn, background: "#1e4d1e", color: "#4caf50" }}
+            disabled={saving} onClick={handleSaveManual}>
+            {saving ? "Saving…" : "Save & Continue"}
+          </button>
+          <button style={{ ...s.actionBtn, marginTop: 0, color: "#555" }}
+            onClick={() => { setShowSetup(false); setErr(""); }}>
+            Cancel
+          </button>
+        </div>
       )}
 
-      {devices && (
-        <>
-          <div style={s.field}>
-            <label style={s.label}>Display</label>
-            <select style={s.select} value={selectedDisplay} onChange={e => setSelectedDisplay(e.target.value)}>
-              <option value="">Auto-select</option>
-              {devices.displays.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+      {/* ── Device picker panel (slides in above pill) ─────────────── */}
+      {expanded && !showSetup && configured && (
+        <div style={s.panel}>
+          <div style={s.fieldRow}>
+            <span style={s.fieldLabel}>🖥</span>
+            <select style={s.select}
+              value={selDisplay} onChange={e => setSelDisplay(e.target.value)}>
+              <option value="">Auto-select display</option>
+              {devices?.displays.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
-          <div style={s.field}>
-            <label style={s.label}>System Audio</label>
-            <select style={s.select} value={selectedAudio} onChange={e => setSelectedAudio(e.target.value)}>
-              <option value="">Auto-select</option>
-              {devices.systemAudio.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          <div style={s.fieldRow}>
+            <span style={s.fieldLabel}>🔊</span>
+            <select style={s.select}
+              value={selAudio} onChange={e => setSelAudio(e.target.value)}>
+              <option value="">Auto-select audio</option>
+              {devices?.systemAudio.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
-        </>
+          <button style={{ ...s.actionBtn, background: "#1e4d1e", color: "#4caf50" }}
+            disabled={isBusy} onClick={handleStart}>
+            {isBusy ? "Starting…" : "▶  Start Capture"}
+          </button>
+        </div>
       )}
 
-      <div style={s.actions}>
-        {!isActive
-          ? <button style={{ ...s.btn, ...s.btnGreen }} disabled={isBusy}
-              onClick={() => window.recorderAPI.startCapture({
-                displayId: selectedDisplay || undefined,
-                systemAudioId: selectedAudio || undefined,
-              })}>
-              {isBusy ? "..." : "Start Capture"}
-            </button>
-          : <button style={{ ...s.btn, ...s.btnRed }}
-              onClick={() => window.recorderAPI.stopCapture()}>
-              Stop
-            </button>
-        }
-      </div>
+      {/* ── Pill bar ────────────────────────────────────────────────── */}
+      <div style={s.pill}>
+        {/* drag handle */}
+        <span style={s.drag}>⠿</span>
 
-      <div style={s.log}>
-        {log.slice().reverse().map((l, i) => <div key={i} style={s.logLine}>{l}</div>)}
+        {/* left content */}
+        {isActive ? (
+          <>
+            <span style={s.recDot} />
+            <span style={s.recLabel}>REC</span>
+            <span style={s.timer}>{fmtElapsed(elapsed)}</span>
+          </>
+        ) : (
+          <span style={s.logo}>DataLens</span>
+        )}
+
+        <div style={s.spacer} />
+
+        {/* right actions */}
+        {!configured ? (
+          <>
+            <button style={{ ...s.pillBtn, ...s.pillBtnBlue }}
+              disabled={signingIn}
+              onClick={handleSignIn}>
+              {signingIn ? "…" : "Sign in"}
+            </button>
+            <button style={s.pillIconBtn}
+              title="Configure manually"
+              onClick={() => { setShowSetup(s => !s); setExpanded(false); }}>
+              ⚙
+            </button>
+          </>
+        ) : isActive ? (
+          <button style={{ ...s.pillBtn, ...s.pillBtnRed }} onClick={handleStop}>
+            ⏹ Stop
+          </button>
+        ) : (
+          <>
+            <button style={{ ...s.pillBtn, ...s.pillBtnGreen }}
+              disabled={isBusy}
+              onClick={handleExpand}>
+              {isBusy ? "…" : expanded ? "▾ Close" : "▶ Start"}
+            </button>
+            <button style={s.pillIconBtn} title="Settings"
+              onClick={() => { setShowSetup(s => !s); setExpanded(false); }}>
+              ⚙
+            </button>
+            <button style={s.pillIconBtn} title="Sign out" onClick={handleSignOut}>
+              ×
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 const s: Record<string, React.CSSProperties> = {
-  container: { padding: 20, height: "100vh", background: "#0f0f13", color: "#e0e0e0", display: "flex", flexDirection: "column", gap: 12, overflow: "hidden" },
-  logo: { fontSize: 28, fontWeight: 800, color: "#fff", letterSpacing: -1 },
-  subtitle: { fontSize: 13, color: "#666", textAlign: "center" },
-  hint: { fontSize: 11, color: "#555", textAlign: "center" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  title: { fontSize: 20, fontWeight: 700, color: "#fff" },
-  signOutBtn: { background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer" },
-  statusBadge: { padding: "8px 12px", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
-  dot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0 },
-  field: { display: "flex", flexDirection: "column", gap: 4 },
-  label: { fontSize: 12, color: "#888" },
-  select: { padding: "6px 10px", borderRadius: 6, border: "1px solid #333", background: "#1a1a2e", color: "#e0e0e0", fontSize: 13 },
-  actions: { display: "flex", gap: 8 },
-  btn: { padding: "8px 16px", borderRadius: 8, border: "none", background: "#2a2a3e", color: "#e0e0e0", cursor: "pointer", fontSize: 14, flex: 1 },
-  btnBlue: { background: "#1a3a5f", color: "#64b5f6" },
-  btnGreen: { background: "#1e4d1e", color: "#4caf50" },
-  btnRed: { background: "#4d1e1e", color: "#f44336" },
-  log: { flex: 1, overflowY: "auto", background: "#0a0a12", borderRadius: 8, padding: 10, fontSize: 11, fontFamily: "monospace" },
-  logLine: { color: "#666", marginBottom: 2 },
+  root: {
+    display: "flex", flexDirection: "column", gap: 6,
+    padding: "0 0 0 0",
+    // no background — fully transparent root
+  },
+
+  // ── Pill ──────────────────────────────────────────────────────────
+  pill: {
+    height: 48, display: "flex", alignItems: "center", gap: 6,
+    padding: "0 10px 0 8px",
+    background: "rgba(12,12,20,0.92)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 14,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.6)",
+    // make the whole pill draggable; buttons override with no-drag
+    WebkitAppRegion: "drag",
+  } as React.CSSProperties,
+
+  drag: {
+    fontSize: 13, color: "#333", letterSpacing: 1,
+    WebkitAppRegion: "drag", cursor: "grab",
+  } as React.CSSProperties,
+
+  logo: { fontSize: 13, fontWeight: 700, color: "#aaa", letterSpacing: 0.5 },
+  spacer: { flex: 1 },
+
+  recDot: {
+    width: 8, height: 8, borderRadius: "50%", background: "#f44336", flexShrink: 0,
+    boxShadow: "0 0 6px #f44336",
+    animation: "pulse 1.2s ease-in-out infinite",
+  } as React.CSSProperties,
+  recLabel: { fontSize: 11, fontWeight: 700, color: "#f44336", letterSpacing: 1 },
+  timer:    { fontSize: 12, color: "#888", fontFamily: "monospace" },
+
+  pillBtn: {
+    padding: "5px 12px", borderRadius: 8, border: "none",
+    fontSize: 12, fontWeight: 600, cursor: "pointer",
+    WebkitAppRegion: "no-drag",
+  } as React.CSSProperties,
+  pillBtnGreen: { background: "#1e4d1e", color: "#4caf50" },
+  pillBtnRed:   { background: "#4d1e1e", color: "#f44336" },
+  pillBtnBlue:  { background: "#1a3a5f", color: "#64b5f6" },
+
+  pillIconBtn: {
+    background: "none", border: "none", color: "#444", fontSize: 14,
+    cursor: "pointer", padding: "2px 4px", lineHeight: 1,
+    WebkitAppRegion: "no-drag",
+  } as React.CSSProperties,
+
+  // ── Floating panel above pill ─────────────────────────────────────
+  panel: {
+    background: "rgba(12,12,20,0.95)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 12,
+    padding: "12px 12px 10px",
+    display: "flex", flexDirection: "column", gap: 7,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
+  },
+  panelTitle: { fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: 1, textTransform: "uppercase", marginBottom: 2 },
+
+  row: { display: "flex", gap: 6 },
+  chip: {
+    flex: 1, padding: "5px 0", borderRadius: 7, border: "1px solid #2a2a3e",
+    background: "#1a1a2e", color: "#555", cursor: "pointer", fontSize: 11, fontWeight: 600,
+  },
+  chipOn: { background: "#1a3a5f", color: "#64b5f6", borderColor: "#2196f3" },
+
+  input: {
+    padding: "6px 9px", borderRadius: 7, border: "1px solid #2a2a3e",
+    background: "#0f0f18", color: "#ccc", fontSize: 11, outline: "none",
+  } as React.CSSProperties,
+  hint: { fontSize: 10, color: "#333" },
+  errMsg: { fontSize: 10, color: "#f44336" },
+
+  actionBtn: {
+    padding: "7px 0", borderRadius: 8, border: "none",
+    background: "#1a1a2e", color: "#888",
+    cursor: "pointer", fontSize: 12, fontWeight: 600, marginTop: 2,
+  },
+
+  fieldRow: { display: "flex", alignItems: "center", gap: 6 },
+  fieldLabel: { fontSize: 13, flexShrink: 0 },
+  select: {
+    flex: 1, padding: "5px 8px", borderRadius: 7, border: "1px solid #2a2a3e",
+    background: "#0f0f18", color: "#ccc", fontSize: 11,
+  },
 };

@@ -3,13 +3,23 @@ import { join } from "path";
 
 const devRendererUrl = process.env["ELECTRON_RENDERER_URL"];
 
+export const PILL_W = 244;
+export const PILL_H = 48;
+
 export function createControlWindow(): BrowserWindow {
+  const { height: screenH } = screen.getPrimaryDisplay().workAreaSize;
+
   const win = new BrowserWindow({
-    width: 420,
-    height: 640,
-    minWidth: 360,
-    minHeight: 500,
-    title: "DataLens",
+    width: PILL_W,
+    height: PILL_H,
+    x: 24,
+    y: screenH - PILL_H - 24,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: false,
+    hasShadow: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

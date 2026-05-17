@@ -1,77 +1,304 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   PieChart, Pie, Cell, RadialBarChart, RadialBar,
-  ScatterChart, Scatter, ComposedChart, ReferenceLine,
+  ScatterChart, Scatter, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import type { UVS } from "../types";
+import type { UVS, TelemetryEvent } from "../types";
 
 declare const window: Window & {
   overlayAPI: {
     setIgnoreMouse: (ignore: boolean) => void;
     onShowSpec: (cb: (payload: { spec: UVS }) => void) => void;
+    onTelemetry: (cb: (e: TelemetryEvent) => void) => void;
     removeAllListeners: (ch: string) => void;
   };
 };
 
 const COLORS = ["#2196f3", "#4caf50", "#ff9800", "#e91e63", "#9c27b0", "#00bcd4", "#ff5722"];
 const H = 120;
+const PANEL_W = 280;
+const MAX_LOGS = 60;
 
 interface ChartEntry { spec: UVS; id: number; ts: number; }
+type Pos = { x: number; y: number };
 
-export default function OverlayApp(): React.ReactElement {
-  const [charts, setCharts] = useState<ChartEntry[]>([]);
-  const nextId = useRef(0);
+// ── Draggable panel wrapper ──────────────────────────────────────────────────
 
-  useEffect(() => {
-    window.overlayAPI.onShowSpec(({ spec }) => {
-      const ts = Date.now();
-      setCharts(prev => {
-        const idx = prev.findIndex(c => c.spec.title === spec.title);
-        if (idx !== -1) {
-          const updated = [...prev];
-          updated[idx] = { ...updated[idx], spec, ts };
-          return updated;
-        }
-        return [{ spec, id: nextId.current++, ts }, ...prev];
-      });
-    });
-    return () => window.overlayAPI.removeAllListeners("overlay:show-spec");
-  }, []);
+interface PanelProps {
+  pos: Pos;
+  locked: boolean;
+  minimized: boolean;
+  onDragStart: (e: React.MouseEvent) => void;
+  onLock: () => void;
+  onMinimize: () => void;
+  onClear?: () => void;
+  label: string;
+  icon: string;
+  minContent: React.ReactNode;
+  children: React.ReactNode;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  maxHeight?: number;
+}
 
-  if (charts.length === 0) return <></>;
-
+function Panel({
+  pos, locked, minimized, onDragStart, onLock, onMinimize, onClear,
+  label, icon, minContent, children, onMouseEnter, onMouseLeave, maxHeight = 520,
+}: PanelProps) {
   return (
     <div
-      style={s.sidebar}
-      onMouseEnter={() => window.overlayAPI.setIgnoreMouse(false)}
-      onMouseLeave={() => window.overlayAPI.setIgnoreMouse(true)}
+      style={{
+        position: "fixed",
+        left: pos.x,
+        top: pos.y,
+        width: PANEL_W,
+        background: "rgba(10,10,18,0.91)",
+        backdropFilter: "blur(14px)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+        pointerEvents: "auto",
+        userSelect: "none",
+        zIndex: 9999,
+        overflow: "hidden",
+      }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
-      <div style={s.header}>
-        <span style={s.logo}>DataLens</span>
-        <button style={s.clearBtn} onClick={() => setCharts([])}>✕</button>
+      {/* drag handle / header */}
+      <div
+        onMouseDown={locked ? undefined : onDragStart}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "8px 10px 7px",
+          borderBottom: minimized ? "none" : "1px solid rgba(255,255,255,0.06)",
+          cursor: locked ? "default" : "grab",
+          background: "rgba(255,255,255,0.03)",
+        }}
+      >
+        <span style={{ fontSize: 11, opacity: 0.4, marginRight: 2, letterSpacing: 2 }}>⠿</span>
+        <span style={{ fontSize: 10, color: "#2196f3", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", flex: 1 }}>
+          {icon} {label}
+        </span>
+        {minimized && (
+          <span style={{ fontSize: 10, color: "#555", flex: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {minContent}
+          </span>
+        )}
+        <button onClick={onLock} style={btnStyle} title={locked ? "Unlock position" : "Lock position"}>
+          {locked ? "🔒" : "🔓"}
+        </button>
+        <button onClick={onMinimize} style={btnStyle} title={minimized ? "Expand" : "Minimize"}>
+          {minimized ? "□" : "–"}
+        </button>
+        {onClear && !minimized && (
+          <button onClick={onClear} style={btnStyle} title="Clear">✕</button>
+        )}
       </div>
-      <div style={s.scroll}>
-        {charts.map(({ spec, id, ts }) => (
-          <div key={id} style={s.card}>
-            <div style={s.cardHeader}>
-              <span style={s.cardTitle}>{spec.title}</span>
-              {spec.subtitle && <span style={s.cardSub}>{spec.subtitle}</span>}
-              <span style={s.cardTime}>{formatTime(ts)}</span>
-            </div>
-            <ChartBody spec={spec} />
-            {spec.source && <div style={s.source}>src: {spec.source}</div>}
-          </div>
-        ))}
-      </div>
+
+      {!minimized && (
+        <div style={{ maxHeight, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "#2a2a3a transparent" } as React.CSSProperties}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// ── Root component ───────────────────────────────────────────────────────────
+
+export default function OverlayApp(): React.ReactElement {
+  const [charts, setCharts] = useState<ChartEntry[]>([]);
+  const [logs, setLogs] = useState<TelemetryEvent[]>([]);
+
+  const [vizMin, setVizMin] = useState(false);
+  const [logMin, setLogMin] = useState(false);
+  const [vizLocked, setVizLocked] = useState(true);
+  const [logLocked, setLogLocked] = useState(true);
+
+  const [vizPos, setVizPos] = useState<Pos>({ x: window.innerWidth - PANEL_W - 10, y: 30 });
+  const [logPos, setLogPos] = useState<Pos>({ x: window.innerWidth - PANEL_W - 10, y: window.innerHeight - 220 });
+
+  const nextId = useRef(0);
+  const hovering = useRef(false);
+  const isDragging = useRef(false);
+
+  const vizDefault = useCallback((): Pos => ({ x: window.innerWidth - PANEL_W - 10, y: 30 }), []);
+  const logDefault = useCallback((): Pos => ({ x: window.innerWidth - PANEL_W - 10, y: window.innerHeight - 220 }), []);
+
+  const resolvedViz = vizLocked ? vizDefault() : vizPos;
+  const resolvedLog = logLocked ? logDefault() : logPos;
+
+  useEffect(() => {
+    window.overlayAPI.onShowSpec(({ spec }) => {
+      setCharts(prev => {
+        const idx = prev.findIndex(c => c.spec.title === spec.title);
+        if (idx !== -1) {
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], spec, ts: Date.now() };
+          return updated;
+        }
+        return [{ spec, id: nextId.current++, ts: Date.now() }, ...prev];
+      });
+    });
+    window.overlayAPI.onTelemetry((e: TelemetryEvent) => {
+      setLogs(prev => [e, ...prev].slice(0, MAX_LOGS));
+    });
+    return () => {
+      window.overlayAPI.removeAllListeners("overlay:show-spec");
+      window.overlayAPI.removeAllListeners("overlay:telemetry");
+    };
+  }, []);
+
+  const onEnter = useCallback(() => {
+    hovering.current = true;
+    window.overlayAPI.setIgnoreMouse(false);
+  }, []);
+
+  const onLeave = useCallback(() => {
+    hovering.current = false;
+    if (!isDragging.current) window.overlayAPI.setIgnoreMouse(true);
+  }, []);
+
+  function startDrag(e: React.MouseEvent, which: "viz" | "log") {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const init = which === "viz" ? { ...resolvedViz } : { ...resolvedLog };
+    isDragging.current = true;
+
+    const onMove = (ev: MouseEvent) => {
+      const nx = Math.max(0, Math.min(window.innerWidth - PANEL_W - 4, init.x + ev.clientX - startX));
+      const ny = Math.max(0, Math.min(window.innerHeight - 50, init.y + ev.clientY - startY));
+      if (which === "viz") setVizPos({ x: nx, y: ny });
+      else setLogPos({ x: nx, y: ny });
+    };
+
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (!hovering.current) window.overlayAPI.setIgnoreMouse(true);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  function toggleVizLock() {
+    if (!vizLocked) setVizPos(vizDefault());
+    setVizLocked(v => !v);
+  }
+
+  function toggleLogLock() {
+    if (!logLocked) setLogPos(logDefault());
+    setLogLocked(v => !v);
+  }
+
+  const latestChart = charts[0];
+  const latestLog = logs[0];
+
+  return (
+    <>
+      {/* ── Viz panel ────────────────────────── */}
+      {charts.length > 0 && (
+        <Panel
+          pos={resolvedViz}
+          locked={vizLocked}
+          minimized={vizMin}
+          onDragStart={(e) => startDrag(e, "viz")}
+          onLock={toggleVizLock}
+          onMinimize={() => setVizMin(v => !v)}
+          onClear={() => setCharts([])}
+          label="DataLens"
+          icon="📊"
+          minContent={latestChart?.spec.title}
+          onMouseEnter={onEnter}
+          onMouseLeave={onLeave}
+          maxHeight={520}
+        >
+          {charts.map(({ spec, id, ts }) => (
+            <div key={id} style={s.card}>
+              <div style={s.cardHeader}>
+                <span style={s.cardTitle}>{spec.title}</span>
+                {spec.subtitle && <span style={s.cardSub}>{spec.subtitle}</span>}
+                <span style={s.cardTime}>{formatTime(ts)}</span>
+              </div>
+              <ChartBody spec={spec} />
+              {spec.source && <div style={s.source}>src: {spec.source}</div>}
+            </div>
+          ))}
+        </Panel>
+      )}
+
+      {/* ── Telemetry panel ──────────────────── */}
+      {logs.length > 0 && (
+        <Panel
+          pos={resolvedLog}
+          locked={logLocked}
+          minimized={logMin}
+          onDragStart={(e) => startDrag(e, "log")}
+          onLock={toggleLogLock}
+          onMinimize={() => setLogMin(v => !v)}
+          label="Telemetry"
+          icon="📡"
+          minContent={latestLog ? `${logIcon(latestLog.type)} ${latestLog.message}` : ""}
+          onMouseEnter={onEnter}
+          onMouseLeave={onLeave}
+          maxHeight={200}
+        >
+          <div style={{ padding: "4px 0" }}>
+            {logs.map((e, i) => (
+              <div key={i} style={s.logRow}>
+                <span style={{ ...s.logIcon, color: logColor(e.type) }}>{logIcon(e.type)}</span>
+                <span style={s.logTime}>{formatTime(e.ts)}</span>
+                <span style={{ ...s.logMsg, color: logColor(e.type) }}>{e.message}</span>
+                {e.model && <span style={s.logModel}>{e.model.split("/").pop()?.slice(0, 12)}</span>}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+    </>
+  );
 }
+
+// ── Telemetry helpers ────────────────────────────────────────────────────────
+
+function logIcon(type: TelemetryEvent["type"]): string {
+  switch (type) {
+    case "chart":        return "✓";
+    case "no_chart":     return "○";
+    case "api_call":     return "→";
+    case "fallback":     return "↷";
+    case "rate_limited": return "⚠";
+    case "error":        return "✗";
+    case "filtered":     return "⊘";
+    case "cooldown":     return "⏱";
+    case "consolidate":  return "⟳";
+    default:             return "·";
+  }
+}
+
+function logColor(type: TelemetryEvent["type"]): string {
+  switch (type) {
+    case "chart":        return "#4caf50";
+    case "rate_limited": return "#ff9800";
+    case "error":        return "#f44336";
+    case "fallback":     return "#ffeb3b";
+    case "api_call":     return "#2196f3";
+    case "consolidate":  return "#9c27b0";
+    default:             return "#555";
+  }
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+// ── Chart renderers ──────────────────────────────────────────────────────────
 
 function ChartBody({ spec }: { spec: UVS }): React.ReactElement {
   const data = (spec.data ?? []) as number[];
@@ -79,26 +306,24 @@ function ChartBody({ spec }: { spec: UVS }): React.ReactElement {
   const chartData = labels.map((label, i) => ({ name: label, value: data[i] ?? 0 }));
 
   switch (spec.type) {
-    case "metric_card":   return <MetricCard spec={spec} />;
-    case "text_callout":  return <TextCallout spec={spec} />;
+    case "metric_card":      return <MetricCard spec={spec} />;
+    case "text_callout":     return <TextCallout spec={spec} />;
     case "bar":
-    case "bar_horizontal": return <BarChartView spec={spec} data={data} labels={labels} chartData={chartData} />;
+    case "bar_horizontal":   return <BarChartView spec={spec} data={data} labels={labels} chartData={chartData} />;
     case "line":
-    case "sparkline":     return <LineChartView spec={spec} chartData={chartData} />;
-    case "area":          return <AreaChartView spec={spec} chartData={chartData} />;
-    case "line_multi":    return <LineMultiView spec={spec} labels={labels} />;
-    case "donut":         return <DonutView spec={spec} data={data} chartData={chartData} />;
-    case "progress_bar":  return <ProgressBarView spec={spec} data={data} />;
-    case "waterfall":     return <WaterfallView spec={spec} data={data} labels={labels} />;
-    case "bullet":        return <BulletView spec={spec} data={data} labels={labels} />;
-    case "scatter":       return <ScatterView spec={spec} data={data} labels={labels} />;
-    case "heatmap":       return <HeatmapView spec={spec} labels={labels} />;
+    case "sparkline":        return <LineChartView spec={spec} chartData={chartData} />;
+    case "area":             return <AreaChartView spec={spec} chartData={chartData} />;
+    case "line_multi":       return <LineMultiView spec={spec} labels={labels} />;
+    case "donut":            return <DonutView spec={spec} data={data} chartData={chartData} />;
+    case "progress_bar":     return <ProgressBarView spec={spec} data={data} />;
+    case "waterfall":        return <WaterfallView spec={spec} data={data} labels={labels} />;
+    case "bullet":           return <BulletView spec={spec} data={data} labels={labels} />;
+    case "scatter":          return <ScatterView spec={spec} data={data} labels={labels} />;
+    case "heatmap":          return <HeatmapView spec={spec} labels={labels} />;
     case "comparison_table": return <ComparisonTable spec={spec} labels={labels} />;
-    default:              return <MetricCard spec={spec} />;
+    default:                 return <MetricCard spec={spec} />;
   }
 }
-
-// ── Individual renderers ────────────────────────────────────────────────────
 
 function MetricCard({ spec }: { spec: UVS }): React.ReactElement {
   const value = (spec.data as number[] | undefined)?.[0];
@@ -249,8 +474,7 @@ function WaterfallView({ spec, data, labels }: { spec: UVS; data: number[]; labe
 }
 
 function BulletView({ spec, data, labels }: { spec: UVS; data: number[]; labels: string[] }): React.ReactElement {
-  const actual = data[0] ?? 0;
-  const target = data[1] ?? 0;
+  const actual = data[0] ?? 0, target = data[1] ?? 0;
   const max = Math.max(actual, target) * 1.25;
   const rows = labels.length > 1
     ? labels.map((name, i) => ({ name, actual: data[i * 2] ?? 0, target: data[i * 2 + 1] ?? 0 }))
@@ -290,17 +514,16 @@ function HeatmapView({ spec, labels }: { spec: UVS; labels: string[] }): React.R
   const min = Math.min(...allVals), max = Math.max(...allVals), range = max - min || 1;
   const heat = (v: number): string => {
     const t = (v - min) / range;
-    const r = Math.round(33 + t * 211), g = Math.round(150 - t * 83), b = Math.round(243 - t * 189);
-    return `rgb(${r},${g},${b})`;
+    return `rgb(${Math.round(33 + t * 211)},${Math.round(150 - t * 83)},${Math.round(243 - t * 189)})`;
   };
   return (
     <div style={{ fontSize: 9, color: "#999", overflowX: "auto", padding: "4px 0" }}>
       <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${labels.length}, 1fr)`, gap: 2 }}>
         <div />
-        {labels.map(l => <div key={l} style={{ textAlign: "center", padding: "1px 0", color: "#777" }}>{l}</div>)}
+        {labels.map(l => <div key={l} style={{ textAlign: "center", color: "#777" }}>{l}</div>)}
         {series.map(s => (
           <React.Fragment key={s.name}>
-            <div style={{ display: "flex", alignItems: "center", color: "#999", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</div>
+            <div style={{ display: "flex", alignItems: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</div>
             {s.values.map((v, i) => {
               const intensity = (v - min) / range;
               return (
@@ -350,7 +573,7 @@ function ComparisonTable({ spec, labels }: { spec: UVS; labels: string[] }): Rea
   );
 }
 
-// ── Shared styles ───────────────────────────────────────────────────────────
+// ── Styles ───────────────────────────────────────────────────────────────────
 
 const tooltipStyle: React.CSSProperties = {
   background: "#12121c", border: "1px solid #2a2a3a", borderRadius: 6,
@@ -358,26 +581,21 @@ const tooltipStyle: React.CSSProperties = {
 };
 const thStyle: React.CSSProperties = { padding: "4px 6px", textAlign: "left", color: "#777", fontWeight: 600, borderBottom: "1px solid #2a2a3a" };
 const tdStyle: React.CSSProperties = { padding: "3px 6px" };
+const btnStyle: React.CSSProperties = {
+  background: "none", border: "none", color: "#444", fontSize: 12,
+  cursor: "pointer", padding: "1px 3px", lineHeight: 1, flexShrink: 0,
+};
 
 const s: Record<string, React.CSSProperties> = {
-  sidebar: {
-    position: "fixed", top: 0, right: 0, width: 280, height: "100vh",
-    display: "flex", flexDirection: "column",
-    background: "rgba(10,10,18,0.88)", backdropFilter: "blur(12px)",
-    borderLeft: "1px solid rgba(255,255,255,0.07)",
-    pointerEvents: "auto", zIndex: 9999,
-  },
-  header: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "10px 12px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
-  },
-  logo: { fontSize: 12, fontWeight: 700, color: "#2196f3", letterSpacing: 1, textTransform: "uppercase" },
-  clearBtn: { background: "none", border: "none", color: "#444", fontSize: 13, cursor: "pointer", padding: "2px 4px", lineHeight: 1 },
-  scroll: { flex: 1, overflowY: "auto", overflowX: "hidden", padding: "6px 0", scrollbarWidth: "thin", scrollbarColor: "#2a2a3a transparent" } as React.CSSProperties,
   card: { padding: "8px 12px 6px", borderBottom: "1px solid rgba(255,255,255,0.05)" },
   cardHeader: { marginBottom: 4, display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 4 },
   cardTitle: { fontSize: 12, fontWeight: 700, color: "#e0e0e0", flex: 1, minWidth: 0 },
   cardSub: { fontSize: 10, color: "#666" },
   cardTime: { fontSize: 9, color: "#444", flexShrink: 0 },
   source: { fontSize: 9, color: "#444", marginTop: 2 },
+  logRow: { display: "flex", alignItems: "center", gap: 4, padding: "2px 10px", fontFamily: "monospace", fontSize: 10 },
+  logIcon: { flexShrink: 0, width: 10 },
+  logTime: { color: "#444", flexShrink: 0, fontSize: 9 },
+  logMsg: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  logModel: { color: "#333", fontSize: 9, flexShrink: 0, fontFamily: "monospace" },
 };
