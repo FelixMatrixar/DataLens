@@ -77,6 +77,7 @@ export default function ControlApp(): React.ReactElement {
   const [expanded, setExpanded]     = useState(false);   // device picker open
   const [showSetup, setShowSetup]   = useState(false);   // manual setup form
   const [signingIn, setSigningIn]   = useState(false);
+  const [captureErr, setCaptureErr] = useState<string | null>(null);
 
   const [devices, setDevices]         = useState<{ mics: Device[]; systemAudio: Device[]; displays: Device[] } | null>(null);
   const [selDisplay, setSelDisplay]   = useState("");
@@ -105,10 +106,10 @@ export default function ControlApp(): React.ReactElement {
     });
 
     window.recorderAPI.onSessionStatus((s: unknown) => {
-      const st = s as { state: Session };
+      const st = s as { state: Session; error?: string };
       setSession(st.state);
-      if (st.state === "active") startTimer();
-      else stopTimer();
+      if (st.state === "active") { startTimer(); setCaptureErr(null); }
+      else { stopTimer(); if (st.error) setCaptureErr(st.error); }
     });
 
     return () => {
@@ -216,6 +217,11 @@ export default function ControlApp(): React.ReactElement {
             disabled={isBusy} onClick={handleStart}>
             {isBusy ? "Starting…" : "▶  Start Capture"}
           </button>
+          {captureErr && (
+            <div style={{ fontSize: 10, color: "#f44336", padding: "4px 2px", wordBreak: "break-all" }}>
+              {captureErr}
+            </div>
+          )}
         </div>
       )}
 

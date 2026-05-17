@@ -10,5 +10,11 @@
   },
   "devDependencies": {
     "typescript": "^5.4.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild", "videodb", "@clerk/shared"],
+    "overrides": {
+      "uuid": "^9.0.1"
+    }
   }
 }

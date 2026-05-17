@@ -6,7 +6,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        external: ["videodb", "bufferutil", "utf-8-validate"],
+        external: ["videodb", "videodb/capture", "bufferutil", "utf-8-validate"],
       },
     },
   },
