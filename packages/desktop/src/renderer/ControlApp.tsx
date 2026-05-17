@@ -1,5 +1,36 @@
 import React, { useEffect, useRef, useState } from "react";
 
+function Logo({ size = 20 }: { size?: number }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width={size} height={size} style={{ borderRadius: 6, flexShrink: 0 }}>
+      <defs>
+        <radialGradient id="dl-b" cx="30%" cy="30%" r="42%">
+          <stop offset="0%" stopColor="#9ccfff" />
+          <stop offset="55%" stopColor="#64b5f6" />
+          <stop offset="100%" stopColor="#64b5f6" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="dl-g" cx="70%" cy="70%" r="38%">
+          <stop offset="0%" stopColor="#a8e6a3" />
+          <stop offset="55%" stopColor="#4caf50" />
+          <stop offset="100%" stopColor="#4caf50" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="dl-bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#15151f" />
+          <stop offset="100%" stopColor="#0a0a12" />
+        </linearGradient>
+        <linearGradient id="dl-sk" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="rgba(100,181,246,0.45)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0.06)" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#dl-bg)" />
+      <circle cx="22" cy="22" r="22" fill="url(#dl-b)" />
+      <circle cx="42" cy="42" r="20" fill="url(#dl-g)" />
+      <rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="url(#dl-sk)" strokeWidth="1" />
+    </svg>
+  );
+}
+
 declare const window: Window & {
   recorderAPI: {
     startCapture: (sel: { micId?: string; systemAudioId?: string; displayId?: string }) => Promise<{ ok: boolean; error?: string }>;
@@ -194,10 +225,12 @@ export default function ControlApp(): React.ReactElement {
         <span style={s.drag}>⠿</span>
 
         {/* left content */}
+        <Logo size={20} />
         {isActive ? (
           <>
             <span style={s.recDot} />
-            <span style={s.recLabel}>REC</span>
+            <span style={s.recLabel}>Recording</span>
+            <span style={s.recSep}>·</span>
             <span style={s.timer}>{fmtElapsed(elapsed)}</span>
           </>
         ) : (
@@ -221,8 +254,8 @@ export default function ControlApp(): React.ReactElement {
             </button>
           </>
         ) : isActive ? (
-          <button style={{ ...s.pillBtn, ...s.pillBtnRed }} onClick={handleStop}>
-            ⏹ Stop
+          <button style={s.stopBtn} onClick={handleStop}>
+            ■ Stop
           </button>
         ) : (
           <>
@@ -270,16 +303,25 @@ const s: Record<string, React.CSSProperties> = {
     WebkitAppRegion: "drag", cursor: "grab",
   } as React.CSSProperties,
 
-  logo: { fontSize: 13, fontWeight: 700, color: "#aaa", letterSpacing: 0.5 },
+  logo: { fontSize: 13, fontWeight: 600, color: "#666", letterSpacing: 0.3 },
   spacer: { flex: 1 },
 
   recDot: {
-    width: 8, height: 8, borderRadius: "50%", background: "#f44336", flexShrink: 0,
+    width: 7, height: 7, borderRadius: "50%", background: "#f44336", flexShrink: 0,
     boxShadow: "0 0 6px #f44336",
     animation: "pulse 1.2s ease-in-out infinite",
   } as React.CSSProperties,
-  recLabel: { fontSize: 11, fontWeight: 700, color: "#f44336", letterSpacing: 1 },
-  timer:    { fontSize: 12, color: "#888", fontFamily: "monospace" },
+  recLabel: { fontSize: 12, fontWeight: 500, color: "#e0e0e0" },
+  recSep:   { fontSize: 12, color: "#444" },
+  timer:    { fontSize: 12, color: "#aaa", fontFamily: "monospace" },
+
+  stopBtn: {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "5px 14px", borderRadius: 8, border: "none",
+    background: "#b71c1c", color: "#fff",
+    fontSize: 12, fontWeight: 600, cursor: "pointer",
+    WebkitAppRegion: "no-drag",
+  } as React.CSSProperties,
 
   pillBtn: {
     padding: "5px 12px", borderRadius: 8, border: "none",

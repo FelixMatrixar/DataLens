@@ -111,19 +111,19 @@ export function registerCaptureHandlers(
   });
 
   ipcMain.handle("capture:stop", async () => {
+    sendToControl("session:status", { state: "stopping" });
     try {
-      sendToControl("session:status", { state: "stopping" });
       await captureClient?.stopSession?.();
+    } catch { /* already dead — fine */ }
+    try {
       await captureClient?.shutdown?.();
-      stopEventLoop?.();
-      stopEventLoop = null;
-      captureClient = null;
-      const finalSummary = bus.stop();
-      sendToControl("session:status", { state: "stopped" });
-      return { ok: true, finalSummary };
-    } catch (err) {
-      return { ok: false, error: String(err) };
-    }
+    } catch { /* already dead — fine */ }
+    stopEventLoop?.();
+    stopEventLoop = null;
+    captureClient = null;
+    try { bus.stop(); } catch { /* ignore */ }
+    sendToControl("session:status", { state: "stopped" });
+    return { ok: true };
   });
 
   ipcMain.handle("capture:list-devices", async () => {

@@ -8,7 +8,7 @@ import {
 } from "./charts";
 
 /* ─── NAV ─────────────────────────────────────────────── */
-function Nav({ isSignedIn }: { isSignedIn: boolean }) {
+function Nav() {
   return (
     <nav className="nav-sticky">
       <div className="wrap" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}>
@@ -25,21 +25,9 @@ function Nav({ isSignedIn }: { isSignedIn: boolean }) {
             </a>
           ))}
         </div>
-        {isSignedIn ? (
-          <div style={{ display: "flex", gap: 10 }}>
-            <Link href="/dashboard" className="btn" style={{ padding: "7px 14px", fontSize: 13 }}>Dashboard</Link>
-          </div>
-        ) : (
-          <a href="#start" style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "7px 14px", borderRadius: 999,
-            border: "1px solid var(--blue-dim)", background: "rgba(33,150,243,0.10)",
-            color: "var(--blue)", fontSize: 13, fontWeight: 500, textDecoration: "none",
-          }}>
-            <span className="dot blue" style={{ width: 5, height: 5, boxShadow: "none" }} />
-            Download
-          </a>
-        )}
+        <Link href="/dashboard" className="btn" style={{ padding: "7px 14px", fontSize: 13 }}>
+          Dashboard
+        </Link>
       </div>
     </nav>
   );
@@ -1067,10 +1055,10 @@ function Footer() {
 }
 
 /* ─── ROOT ────────────────────────────────────────────── */
-export default function LandingPage({ isSignedIn }: { isSignedIn: boolean }) {
+export default function LandingPage() {
   return (
     <>
-      <Nav isSignedIn={isSignedIn} />
+      <Nav />
       <main id="top">
         <Hero />
         <Pipeline />
