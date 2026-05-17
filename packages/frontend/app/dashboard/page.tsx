@@ -29,7 +29,6 @@ export default async function DashboardPage() {
       <nav className="flex items-center justify-between px-8 py-5 border-b border-[#1E1E1E]">
         <Link href="/" className="text-[#E50000] font-bold text-lg">DataLens</Link>
         <div className="flex gap-4 items-center">
-          <Link href="/settings" className="text-sm text-[#A0A0A0] hover:text-white">Settings</Link>
           <LogoutButton />
         </div>
       </nav>

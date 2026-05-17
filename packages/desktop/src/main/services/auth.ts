@@ -11,6 +11,14 @@ export async function startAuthFlow(): Promise<UserConfig> {
 
   return new Promise<UserConfig>((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
+      // Allow the Vercel page (HTTPS) to fetch this local HTTP server
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+      if (req.method === "OPTIONS") {
+        res.writeHead(204); res.end(); return;
+      }
+
       try {
         const url = new URL(req.url!, "http://127.0.0.1");
         if (url.pathname !== "/callback") {

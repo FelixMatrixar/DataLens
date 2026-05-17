@@ -38,7 +38,7 @@ type Session = "idle" | "starting" | "active" | "stopping" | "stopped";
 // Window heights for each state
 const H_PILL   = 48;
 const H_DEVICE = 48 + 160; // pill + device picker panel
-const H_SETUP  = 48 + 288; // pill + manual setup form
+const H_SETUP  = 48 + 110; // pill + account panel
 
 export default function ControlApp(): React.ReactElement {
   const [configured, setConfigured] = useState(false);
@@ -51,13 +51,6 @@ export default function ControlApp(): React.ReactElement {
   const [selDisplay, setSelDisplay]   = useState("");
   const [selAudio, setSelAudio]       = useState("");
 
-  const [manual, setManual] = useState({
-    provider: "google" as "google" | "openrouter",
-    googleAiApiKey: "", openrouterApiKey: "",
-    videodbApiKey: "", videodbCollectionId: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [err, setErr]       = useState("");
 
   // Timer for recording duration display
   const [elapsed, setElapsed]  = useState(0);
@@ -128,28 +121,10 @@ export default function ControlApp(): React.ReactElement {
   }
 
   async function handleSignIn() {
-    setSigningIn(true); setErr("");
+    setSigningIn(true);
     const res = await window.authAPI.signIn();
     setSigningIn(false);
-    if (!res.ok) setErr(res.error ?? "Sign-in failed");
-  }
-
-  async function handleSaveManual() {
-    const aiKey = manual.provider === "google" ? manual.googleAiApiKey : manual.openrouterApiKey;
-    if (!aiKey || !manual.videodbApiKey || !manual.videodbCollectionId) {
-      setErr("All fields are required"); return;
-    }
-    setSaving(true); setErr("");
-    await window.configAPI.save({
-      provider:            manual.provider,
-      googleAiApiKey:      manual.googleAiApiKey   || undefined,
-      openrouterApiKey:    manual.openrouterApiKey  || undefined,
-      videodbApiKey:       manual.videodbApiKey,
-      videodbCollectionId: manual.videodbCollectionId,
-    });
-    setSaving(false);
-    setConfigured(true);
-    setShowSetup(false);
+    if (!res.ok) console.error("Sign-in failed:", res.error);
   }
 
   async function handleSignOut() {
@@ -176,51 +151,12 @@ export default function ControlApp(): React.ReactElement {
       {showSetup && (
         <div style={s.panel}>
           <div style={s.panelTitle}>Configure DataLens</div>
-
-          {/* Provider toggle */}
-          <div style={s.row}>
-            {(["google", "openrouter"] as const).map(p => (
-              <button key={p}
-                style={{ ...s.chip, ...(manual.provider === p ? s.chipOn : {}) }}
-                onClick={() => setManual(m => ({ ...m, provider: p }))}>
-                {p === "google" ? "Google AI" : "OpenRouter"}
-              </button>
-            ))}
-          </div>
-
-          {/* AI key */}
-          <input style={s.input} type="password"
-            placeholder={manual.provider === "google" ? "Google AI key  AIza…" : "OpenRouter key  sk-or-…"}
-            value={manual.provider === "google" ? manual.googleAiApiKey : manual.openrouterApiKey}
-            onChange={e => setManual(m =>
-              manual.provider === "google"
-                ? { ...m, googleAiApiKey: e.target.value }
-                : { ...m, openrouterApiKey: e.target.value }
-            )}
-          />
-          {manual.provider === "google" && (
-            <div style={s.hint}>Fallback: 3.0-flash → 2.5-flash → 2.5-flash-lite</div>
-          )}
-
-          <input style={s.input} type="password"
-            placeholder="VideoDB API key  vdb_…"
-            value={manual.videodbApiKey}
-            onChange={e => setManual(m => ({ ...m, videodbApiKey: e.target.value }))}
-          />
-          <input style={s.input}
-            placeholder="VideoDB Collection ID  col_…"
-            value={manual.videodbCollectionId}
-            onChange={e => setManual(m => ({ ...m, videodbCollectionId: e.target.value }))}
-          />
-
-          {err && <div style={s.errMsg}>{err}</div>}
-
-          <button style={{ ...s.actionBtn, background: "#1e4d1e", color: "#4caf50" }}
-            disabled={saving} onClick={handleSaveManual}>
-            {saving ? "Saving…" : "Save & Continue"}
+          <button style={{ ...s.actionBtn, background: "#4d1e1e", color: "#f44336" }}
+            onClick={handleSignOut}>
+            Sign out
           </button>
           <button style={{ ...s.actionBtn, marginTop: 0, color: "#555" }}
-            onClick={() => { setShowSetup(false); setErr(""); }}>
+            onClick={() => setShowSetup(false)}>
             Cancel
           </button>
         </div>
