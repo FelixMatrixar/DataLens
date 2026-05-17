@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="0%" r="100%">
+      <stop offset="0%" stop-color="#1e2235"/>
+      <stop offset="100%" stop-color="#0d0f1a"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="30%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#90caff"/>
+      <stop offset="50%" stop-color="#2196f3"/>
+      <stop offset="100%" stop-color="#2196f3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="green" cx="70%" cy="70%" r="55%">
+      <stop offset="0%" stop-color="#b9f6ca"/>
+      <stop offset="50%" stop-color="#4caf50"/>
+      <stop offset="100%" stop-color="#4caf50" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background rounded square -->
+  <rect width="256" height="256" rx="52" fill="url(#bg)"/>
+  <!-- Blue glow top-left -->
+  <circle cx="88" cy="88" r="100" fill="url(#blue)" opacity="0.9"/>
+  <!-- Green glow bottom-right -->
+  <circle cx="168" cy="168" r="90" fill="url(#green)" opacity="0.9"/>
+  <!-- Subtle border -->
+  <rect x="2" y="2" width="252" height="252" rx="51" fill="none" stroke="rgba(100,181,246,0.4)" stroke-width="3"/>
+</svg>
