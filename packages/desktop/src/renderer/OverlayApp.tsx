@@ -18,7 +18,7 @@ declare const window: Window & {
 
 const COLORS = ["#2196f3", "#4caf50", "#ff9800", "#e91e63", "#9c27b0", "#00bcd4", "#ff5722"];
 const H = 120;
-const PANEL_W = 280;
+const PANEL_W = 308;
 const MAX_LOGS = 60;
 
 interface ChartEntry { spec: UVS; id: number; ts: number; }
@@ -115,8 +115,8 @@ export default function OverlayApp(): React.ReactElement {
 
   const [vizMin, setVizMin] = useState(false);
   const [logMin, setLogMin] = useState(false);
-  const [vizLocked, setVizLocked] = useState(true);
-  const [logLocked, setLogLocked] = useState(true);
+  const [vizLocked, setVizLocked] = useState(false);
+  const [logLocked, setLogLocked] = useState(false);
 
   const [vizPos, setVizPos] = useState<Pos>({ x: window.innerWidth - PANEL_W - 10, y: 30 });
   const [logPos, setLogPos] = useState<Pos>({ x: window.innerWidth - PANEL_W - 10, y: window.innerHeight - 220 });

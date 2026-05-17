@@ -5,6 +5,7 @@ import { registerCaptureHandlers } from "./ipc/capture";
 import { registerOverlayHandlers } from "./ipc/overlay";
 import { registerAuthHandlers } from "./ipc/auth";
 import { getConfig, saveConfig, clearConfig } from "./services/config";
+import { startChartServer } from "./services/chart-server";
 import type { BrowserWindow } from "electron";
 
 let controlWindow: BrowserWindow | null = null;
@@ -23,6 +24,7 @@ function sendToOverlay(channel: string, data: unknown): void {
 }
 
 app.whenReady().then(() => {
+  startChartServer();
   controlWindow = createControlWindow();
   overlayWindow = createOverlayWindow();
 

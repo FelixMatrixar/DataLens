@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import { VideoDBService } from "../services/videodb";
 import { AgentBus } from "../services/bus";
 import { getConfig } from "../services/config";
+import { saveChart } from "../services/chart-store";
 
 const videodbService = new VideoDBService();
 const bus = new AgentBus();
@@ -43,7 +44,7 @@ export function registerCaptureHandlers(
       // 2. Wire AgentBus before events start flowing
       bus.setConfig(config);
       bus.start(
-        (spec) => sendToOverlay("overlay:show-spec", { spec }),
+        (spec) => { sendToOverlay("overlay:show-spec", { spec }); saveChart(spec); },
         (summary) => sendToControl("summary:update", summary),
         (alert) => sendToControl("alert:fired", alert),
         (e) => sendToOverlay("overlay:telemetry", e),
@@ -131,21 +132,16 @@ export function registerCaptureHandlers(
       const config = getConfig();
       if (!config) return { ok: false, error: "No config" };
 
-      const { token } = await videodbService.setup(config).catch(async () => {
-        // Fallback: create a minimal session just for the token
-        const { connect } = require("videodb");
-        const conn = connect({ apiKey: config.videodbApiKey });
-        const coll = await conn.getCollection(config.videodbCollectionId);
-        const session = await coll.createCaptureSession({ endUserId: "list-devices" });
-        const token = await conn.generateClientToken(300);
-        return { token, sessionId: session.id };
-      });
+      // Minimal token — no WebSocket, no full session setup
+      const { connect } = require("videodb");
+      const conn = connect({ apiKey: config.videodbApiKey });
+      const token = await conn.generateClientToken(300);
 
       killCaptureBinary();
       const { CaptureClient } = require("videodb/capture");
       const tempClient = new CaptureClient({ sessionToken: token, restartOnError: false });
       const channels = await tempClient.listChannels();
-      await tempClient.shutdown();
+      await tempClient.shutdown().catch(() => {});
 
       return {
         ok: true,

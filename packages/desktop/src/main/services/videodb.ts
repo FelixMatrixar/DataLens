@@ -23,7 +23,9 @@ export class VideoDBService {
     // 2. Connect WebSocket first — we need connectionId for startTranscript
     const ws = await conn.connectWebsocket(config.videodbCollectionId);
     await ws.connect();
-    (ws as any)._connection?.setMaxListeners?.(50);
+    // Suppress MaxListeners warning — ws.receive() adds one close listener per message internally
+    (ws as any).setMaxListeners?.(0);
+    (ws as any)._connection?.setMaxListeners?.(0);
     const wsConnectionId: string = ws.connectionId ?? "";
     console.log("[DataLens] WebSocket connected, id:", wsConnectionId);
 
