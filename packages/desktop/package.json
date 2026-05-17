@@ -1,6 +1,7 @@
 {
   "name": "@datalens/desktop",
   "version": "1.0.0",
+  "author": "Felix",
   "description": "DataLens Desktop — Live data visualization powered by VideoDB",
   "main": "out/main/index.js",
   "type": "commonjs",
@@ -35,12 +36,7 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis",
-      "icon": "resources/icon.ico"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "resources/icon.icns"
+      "target": "nsis"
     }
   }
 }
