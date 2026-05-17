@@ -196,7 +196,7 @@ function Hero() {
             and renders live chart overlays on top of everything — without you doing anything.
           </p>
           <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
-            <a href="#start" className="btn primary">
+            <a href="https://github.com/FelixMatrixar/datalens/releases/download/v1.0.0/DataLens.Setup.1.0.0.exe" className="btn primary">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M6 9l6 6 6-6M5 21h14" strokeLinecap="round" strokeLinejoin="round"/></svg>
               Download for Windows
             </a>
@@ -828,7 +828,7 @@ function GettingStarted() {
               <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
                 <FlowStep n="1" title="Download the installer" sub="No keys, no config files">
                   <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                    <a href="#" className="panel-2" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", textDecoration: "none", color: "var(--t-md)", borderRadius: 10, minWidth: 230 }}>
+                    <a href="https://github.com/FelixMatrixar/datalens/releases/download/v1.0.0/DataLens.Setup.1.0.0.exe" className="panel-2" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", textDecoration: "none", color: "var(--t-md)", borderRadius: 10, minWidth: 230 }}>
                       <span style={{ width: 30, height: 30, borderRadius: 6, background: "var(--bg-3)", border: "1px solid var(--line-2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>⊞</span>
                       <div><div style={{ fontSize: 12.5, color: "var(--t-hi)" }}>Windows</div><div style={{ fontSize: 10.5, color: "var(--t-dim)", fontFamily: "var(--font-mono)" }}>DataLens-Setup-1.0.0.exe</div></div>
                       <span style={{ flex: 1 }} /><span style={{ fontSize: 11, color: "var(--t-lo)" }}>~92 MB</span>
@@ -994,7 +994,7 @@ DATALENS_FRONTEND_URL=https://datalens-eosin.vercel.app`}</pre>
             DataLens runs in the background of every meeting, briefing, or video you watch — and quietly puts the numbers you&apos;re hearing into shape, the second they&apos;re spoken.
           </p>
           <div style={{ display: "flex", gap: 12, marginTop: 24, justifyContent: "center", flexWrap: "wrap" }}>
-            <a href="#start" className="btn primary">
+            <a href="https://github.com/FelixMatrixar/datalens/releases/download/v1.0.0/DataLens.Setup.1.0.0.exe" className="btn primary">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M6 9l6 6 6-6M5 21h14" strokeLinecap="round" strokeLinejoin="round"/></svg>
               Download v1.0
             </a>

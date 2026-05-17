@@ -35,8 +35,12 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      { "from": "resources/icon.ico", "to": "icon.ico" }
+    ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "resources/icon.ico"
     }
   }
 }

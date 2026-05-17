@@ -1,5 +1,9 @@
-import { BrowserWindow, screen } from "electron";
+import { app, BrowserWindow, screen } from "electron";
 import { join } from "path";
+
+const iconPath = app.isPackaged
+  ? join(process.resourcesPath, "icon.ico")
+  : join(__dirname, "../../resources/icon.ico");
 
 const devRendererUrl = process.env["ELECTRON_RENDERER_URL"];
 
@@ -20,6 +24,7 @@ export function createControlWindow(): BrowserWindow {
     resizable: false,
     skipTaskbar: false,
     hasShadow: false,
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
